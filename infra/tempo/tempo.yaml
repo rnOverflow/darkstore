@@ -4,6 +4,14 @@ distributor:
     otlp:
       protocols:
         grpc: {endpoint: 0.0.0.0:4317}
+ingester:
+  trace_idle_period: 10s      # an order's trace trickles in over minutes: flush idle ones to disk early
+  max_block_duration: 1m      # cut blocks often so the in-memory head stays small
+  max_block_bytes: 20000000
+overrides:
+  defaults:
+    global:
+      max_bytes_per_trace: 5000000   # one runaway order cannot eat the ingester
 storage:
   trace:
     backend: local

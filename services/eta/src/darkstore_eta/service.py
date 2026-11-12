@@ -10,6 +10,7 @@ from sqlalchemy import func, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from darkstore_common import telemetry
 from darkstore_common.city import STORES
 from darkstore_common.envelope import Envelope
 from darkstore_common.events import make_event
@@ -62,6 +63,7 @@ class EtaHandler:
             return
         if et == "order.delivered":
             actual = self.clock.sim_minutes((ts - row.created_at).total_seconds())
+            self._score(row, actual)
             await s.execute(pg_insert(outcomes).values(
                 order_id=oid, actual_min=actual, first_p50=row.first_p50, first_p90=row.first_p90,
                 source=row.first_source, model_version=row.first_model_version,
@@ -91,6 +93,19 @@ class EtaHandler:
         await s.execute(update(order_state).where(order_state.c.order_id == oid).values(**changes))
         row = SimpleNamespace(**{**row._mapping, **changes})
         await self._publish(s, row, ts)
+
+    @staticmethod
+    def _score(row, actual: float) -> None:
+        """Live ETA accuracy: the FIRST promised ETA against what happened (simulated minutes)."""
+        if row.first_p50 is None:
+            return
+        ins = telemetry.instruments()
+        src = {"source": row.first_source or "unknown"}
+        ins.eta_outcomes.add(1, {**src, "covered": str(actual <= row.first_p90).lower()})
+        ins.eta_abs_error.record(abs(row.first_p50 - actual), src)
+        # two monotonic counters (not an up/down gauge): rate()/increase() survive replica restarts
+        ins.eta_early.add(max(0.0, actual - row.first_p50), src)
+        ins.eta_late.add(max(0.0, row.first_p50 - actual), src)
 
     async def _create(self, s: AsyncSession, env: Envelope) -> None:
         p, store = env.payload, env.payload["store_id"]
@@ -129,6 +144,7 @@ class EtaHandler:
     async def _publish(self, s: AsyncSession, row, now: datetime) -> None:
         feats = self._features(row, now)
         eta = self.predictor.predict(feats)             # never raises: heuristic fallback inside
+        telemetry.instruments().eta_predictions.add(1, {"source": eta.source})
         vals = dict(last_p50=eta.p50, last_p90=eta.p90, model_version=eta.model_version)
         if row.first_p50 is None:
             vals.update(first_p50=eta.p50, first_p90=eta.p90, first_source=eta.source,

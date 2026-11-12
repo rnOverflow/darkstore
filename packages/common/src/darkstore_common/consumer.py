@@ -18,6 +18,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from . import telemetry
 from .db import ServiceMeta
 from .envelope import SUPPORTED_SCHEMA_VERSION, Envelope
 from .events import PAYLOADS
@@ -25,6 +26,7 @@ from .topics import EVENT_TOPICS
 from .topics import dlq_topic, parse_delay, retry_topic
 
 log = logging.getLogger("darkstore.consumer")
+LAG_EVERY = 5.0  # seconds between lag samples
 Handler = Callable[[AsyncSession, Envelope], Awaitable[None]]
 
 
@@ -66,9 +68,14 @@ class ConsumerRunner:
             *self.topics, *self._retry_info, bootstrap_servers=self.bootstrap, group_id=self.group,
             enable_auto_commit=False, auto_offset_reset="earliest", max_poll_interval_ms=900_000)
         await consumer.start()
+        self._preinit_counters()
         paused: dict[TopicPartition, float] = {}  # partition -> resume time (retry backoff)
+        next_lag = 0.0
         try:
             while not stop.is_set():
+                if time.time() >= next_lag:
+                    next_lag = time.time() + LAG_EVERY
+                    await self._report_lag(consumer)
                 for tp, at in list(paused.items()):
                     if at <= time.time():
                         try:
@@ -109,7 +116,36 @@ class ConsumerRunner:
                             log.warning("commit failed (rebalance); message will be redelivered")
                             break
         finally:
+            telemetry.clear_lag(self.group)
             await consumer.stop()
+
+    def _preinit_counters(self) -> None:
+        """Create the retry/dlq series at 0 so the FIRST failure is visible to increase()/rate():
+        a series that first appears at 1 has no earlier sample and counts as 0 increase."""
+        ev = telemetry.instruments().events
+        homes = {t.removeprefix("darkstore.") for t in self.topics}
+        for event_type, topic in EVENT_TOPICS.items():
+            if topic.value in homes:
+                for outcome in ("retry", "dlq"):
+                    ev.add(0, {"group": self.group, "event_type": event_type, "outcome": outcome})
+        ev.add(0, {"group": self.group, "event_type": "unparseable", "outcome": "dlq"})
+
+    async def _report_lag(self, consumer: AIOKafkaConsumer) -> None:
+        """Per group+origin topic: messages not yet processed (log end - position), retry topics
+        included, so a backlog parked in a retry topic is visible too."""
+        lag: dict[str, int] = {t: 0 for t in self.topics}   # a topic we lost in a rebalance reads 0
+        try:
+            for tp in consumer.assignment():
+                end = consumer.highwater(tp)
+                if end is None:
+                    continue
+                origin = self._retry_info.get(tp.topic, (tp.topic, 0))[0]
+                lag[origin] = lag.get(origin, 0) + max(0, end - await consumer.position(tp))
+        except Exception:  # noqa: BLE001 - a metrics hiccup (rebalance) must never stop consuming
+            return
+        telemetry.clear_lag(self.group)
+        for origin, v in lag.items():
+            telemetry.set_lag(self.group, origin, v)
 
     def _not_before(self, m: ConsumerRecord) -> float:
         if m.topic not in self._retry_info:
@@ -133,27 +169,47 @@ class ConsumerRunner:
                 raise ValueError(f"unsupported schema_version {env.schema_version}")
         except (ValidationError, KeyError, ValueError) as e:
             await self._dlq(m, origin, attempt, f"poison message: {type(e).__name__}")
+            telemetry.instruments().events.add(
+                1, {"group": self.group, "event_type": "unparseable", "outcome": "dlq"})
             return
-        try:
-            await self._process(env)
-        except PERMANENT as e:
-            log.warning("permanent failure for %s %s: %r", env.event_type, env.event_id, e)
-            await self._dlq(m, origin, attempt, f"permanent: {_describe(e)}")
-        except Exception as e:  # noqa: BLE001 - any other handler failure is retried
-            log.warning("handler failed for %s %s: %s", env.event_type, env.event_id, _describe(e))
-            await self._fail(m, origin, attempt, e)
+        ins = telemetry.instruments()
+        attrs = {"group": self.group, "event_type": env.event_type}
+        if attempt == 0:   # retries re-deliver an old event: their "age" is backoff, not pipeline latency
+            ins.event_age.record(max(0.0, time.time() - env.occurred_at.timestamp()), attrs)
+        started = time.perf_counter()
+        # counters are bumped only after the follow-up produce succeeded: if it raises, run() redoes
+        # the message and this method runs again, which must not count it twice
+        with telemetry.consume_span(env, self.group, origin, attempt, m.headers) as span:
+            try:
+                applied = await self._process(env)
+                outcome = "ok" if applied else "duplicate"
+            except PERMANENT as e:
+                log.warning("permanent failure for %s %s: %s", env.event_type, env.event_id, _describe(e))
+                telemetry.mark_error(span, _describe(e))
+                await self._dlq(m, origin, attempt, f"permanent: {_describe(e)}")
+                outcome = "dlq"
+            except Exception as e:  # noqa: BLE001 - any other handler failure is retried
+                log.warning("handler failed for %s %s: %s", env.event_type, env.event_id, _describe(e))
+                telemetry.mark_error(span, _describe(e))
+                await self._fail(m, origin, attempt, e)
+                outcome = "retry" if attempt < len(self.delays) else "dlq"
+            finally:
+                ins.event_handle.record(time.perf_counter() - started, attrs)
+        ins.events.add(1, {**attrs, "outcome": outcome})
 
-    async def _process(self, env: Envelope) -> None:
+    async def _process(self, env: Envelope) -> bool:
+        """True if the handler ran, False for a duplicate delivery."""
         if not self.dedupe:
             await self.handler(None, env)
-            return
+            return True
         pe = self.meta.processed
         async with self.sm.begin() as s:
             r = await s.execute(pg_insert(pe).values(consumer=self.group, event_id=env.event_id)
                                 .on_conflict_do_nothing().returning(pe.c.event_id))
             if r.first() is None:
-                return  # duplicate delivery: already applied
+                return False  # duplicate delivery: already applied
             await self.handler(s, env)
+        return True
 
     async def _fail(self, m: ConsumerRecord, origin: str, attempt: int, err: Exception) -> None:
         if attempt < len(self.delays):
@@ -161,7 +217,8 @@ class ConsumerRunner:
             await self.producer.send_and_wait(
                 retry_topic(origin, self.group, delay), value=m.value, key=m.key, headers=[
                     ("not_before", str(time.time() + parse_delay(delay)).encode()),
-                    ("last_error", _describe(err)[:200].encode())])
+                    ("last_error", _describe(err)[:200].encode()),
+                    *telemetry.carry_headers(m.headers)])
         else:
             await self._dlq(m, origin, attempt, _describe(err))
 
@@ -169,4 +226,5 @@ class ConsumerRunner:
         await self.producer.send_and_wait(
             dlq_topic(origin, self.group), value=m.value, key=m.key, headers=[
                 ("error", error[:1000].encode()), ("origin_topic", origin.encode()),
-                ("attempts", str(attempt).encode()), ("group", self.group.encode())])
+                ("attempts", str(attempt).encode()), ("group", self.group.encode()),
+                *telemetry.carry_headers(m.headers)])

@@ -8,6 +8,7 @@ from aiokafka import AIOKafkaProducer
 from sqlalchemy import func, insert, select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from . import telemetry
 from .db import ServiceMeta
 from .envelope import Envelope
 
@@ -19,7 +20,7 @@ async def enqueue(session: AsyncSession, meta: ServiceMeta, topic: str, env: Env
                   headers: dict[str, str] | None = None) -> None:
     await session.execute(insert(meta.outbox).values(
         topic=topic, key=env.order_id, event_id=env.event_id, body=env.model_dump_json(),
-        headers=headers or {}))
+        headers={**telemetry.inject_headers(env.order_id), **(headers or {})}))
 
 
 class OutboxRelay:

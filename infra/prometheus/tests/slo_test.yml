@@ -1,0 +1,90 @@
+# promtool test rules /etc/prometheus/tests/slo_test.yml   (make test-alerts)
+rule_files: [../rules/slo.yml]
+evaluation_interval: 1m
+tests:
+  - interval: 1m
+    name: lag alert fires only after 2 minutes above the threshold
+    input_series:
+      - series: 'darkstore_consumer_lag{group="dispatch",topic="t"}'
+        values: '0 0 900 900 900 900'
+    alert_rule_test:
+      - {eval_time: 3m, alertname: ConsumerLagHigh, exp_alerts: []}        # above for only 1 m
+      - eval_time: 5m
+        alertname: ConsumerLagHigh
+        exp_alerts:
+          - exp_labels: {severity: warning, slo: pipeline, group: dispatch}
+            exp_annotations:
+              summary: "consumer group dispatch is 900 messages behind"
+              description: "Dashboard: 2 · Kafka consumer lag. Check the group's container and its retry topics."
+      - {eval_time: 5m, alertname: ConsumerLagCritical, exp_alerts: []}
+
+  - interval: 1m
+    name: any dead letter pages immediately
+    input_series:
+      - series: 'darkstore_events_total{group="picking",event_type="x",outcome="dlq"}'
+        values: '0 0 0 1 1 1'
+    alert_rule_test:
+      - {eval_time: 2m, alertname: DeadLetteredEvents, exp_alerts: []}
+      - eval_time: 4m
+        alertname: DeadLetteredEvents
+        exp_alerts:
+          - exp_labels: {severity: critical, slo: pipeline, group: picking}
+            exp_annotations:
+              summary: "1 event(s) dead-lettered by picking in 5 m"
+              description: "Fix the cause, then replay with scripts/replay.py (runbook: dead letters)."
+
+  - interval: 1m
+    name: assignment wait SLO breach needs a sustained p95 above 30 s
+    input_series:
+      # every observation lands in the le=60 bucket (31..60 s) from minute 0 on
+      - {series: 'darkstore_assignment_wait_seconds_bucket{le="30"}', values: '0+0x14'}
+      - {series: 'darkstore_assignment_wait_seconds_bucket{le="60"}', values: '0+10x14'}
+      - {series: 'darkstore_assignment_wait_seconds_bucket{le="+Inf"}', values: '0+10x14'}
+    alert_rule_test:
+      - {eval_time: 4m, alertname: AssignmentWaitSLOBreach, exp_alerts: []}
+      - eval_time: 12m
+        alertname: AssignmentWaitSLOBreach
+        exp_alerts:
+          - exp_labels: {severity: warning, slo: matching}
+            exp_annotations:
+              summary: "p95 wait for a rider is 58.5s (SLO: 30 s)"
+              description: "Ready orders are queueing for riders: fleet saturated, matcher stalled or Redis slow. Dashboard: 3 · Rider matching."
+
+  - interval: 1m
+    name: a healthy system raises nothing
+    input_series:
+      - {series: 'darkstore_consumer_lag{group="order",topic="t"}', values: '0+0x20'}
+      - {series: 'darkstore_assignment_wait_seconds_bucket{le="30"}', values: '0+10x20'}
+      - {series: 'darkstore_assignment_wait_seconds_bucket{le="+Inf"}', values: '0+10x20'}
+      - {series: 'darkstore_events_total{group="order",event_type="x",outcome="ok"}', values: '0+5x20'}
+    alert_rule_test:
+      - {eval_time: 15m, alertname: AssignmentWaitSLOBreach, exp_alerts: []}
+      - {eval_time: 15m, alertname: ConsumerLagHigh, exp_alerts: []}
+      - {eval_time: 15m, alertname: DeadLetteredEvents, exp_alerts: []}
+      - {eval_time: 15m, alertname: TelemetryMissing, exp_alerts: []}
+
+  - interval: 1m
+    name: missing consumer metrics are themselves an alert
+    input_series:
+      - {series: 'up{job="prometheus"}', values: '1+0x10'}
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: TelemetryMissing
+        exp_alerts:
+          - exp_labels: {severity: warning}
+            exp_annotations:
+              summary: "no consumer metrics are arriving: services down or the collector pipeline is broken"
+
+  - interval: 1m
+    name: a total fleet stall (no assignment ever recorded) is still caught
+    input_series:
+      - {series: 'darkstore_assignments_total{outcome="no_rider"}', values: '0+300x12'}
+    alert_rule_test:
+      - {eval_time: 3m, alertname: FleetStarved, exp_alerts: []}
+      - eval_time: 10m
+        alertname: FleetStarved
+        exp_alerts:
+          - exp_labels: {severity: warning, slo: matching}
+            exp_annotations:
+              summary: "100% of rider searches find nobody"
+              description: "Fleet exhausted or riders stuck (check pickup timeouts and the reconciler). Dashboard: 3 · Rider matching."

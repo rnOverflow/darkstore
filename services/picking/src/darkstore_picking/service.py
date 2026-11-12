@@ -8,6 +8,7 @@ from datetime import datetime, timedelta, timezone
 from sqlalchemy import func, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
+from darkstore_common import telemetry
 from darkstore_common.events import make_event
 from darkstore_common.outbox import enqueue
 from darkstore_common import world
@@ -63,8 +64,10 @@ async def serve(settings: Settings, stop: asyncio.Event, ready: asyncio.Event | 
                     await s.execute(update(picks).where(picks.c.order_id == r.order_id)
                                     .values(status="completed", completed_at=datetime.now(timezone.utc)))
                     took = (datetime.now(timezone.utc) - r.started_at).total_seconds()
-                    await enqueue(s, META, out, make_event("picking.completed", r.order_id,
-                                                           store_id=r.store_id, pick_seconds=took))
+                    with telemetry.order_span("picking.complete", r.order_id, store_id=r.store_id,
+                                              pick_seconds=took):
+                        await enqueue(s, META, out, make_event(
+                            "picking.completed", r.order_id, store_id=r.store_id, pick_seconds=took))
         await run_loop(stop, step, settings.sweep_interval, "picking-sweeper")
 
     try:

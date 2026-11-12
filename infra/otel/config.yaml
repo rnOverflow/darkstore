@@ -16,6 +16,8 @@ exporters:
     tls: {insecure: true}
   prometheus:
     endpoint: 0.0.0.0:8889
+    metric_expiration: 2m          # a stopped replica's series disappear instead of going stale forever
+    resource_to_telemetry_conversion: {enabled: true}   # service.name -> service_name label
   otlphttp/loki:
     endpoint: http://loki:3100/otlp
 service:

@@ -15,6 +15,9 @@ x-app-env: &app-env
   KAFKA_BOOTSTRAP: redpanda:9092
   REDIS_URL: redis://:${REDIS_PASSWORD:?run make env to generate .env}@redis:6379/0
   SIM_START_HOUR: ${SIM_START_HOUR:-18}        # one shared simulated clock for every service
+  OTEL_ENDPOINT: http://otel-collector:4318    # traces, metrics and logs (empty = telemetry off)
+  OTEL_EXPORTER_OTLP_TIMEOUT: "3000"           # ms: a dead collector must not stall shutdown for long
+  OTEL_ATTRIBUTE_VALUE_LENGTH_LIMIT: "256"      # no attribute can carry an oversized string
 
 services:
   redpanda:
@@ -94,6 +97,7 @@ services:
     volumes: ["./infra/otel/config.yaml:/etc/otelcol/config.yaml:ro"]
     ports: ["127.0.0.1:4317:4317", "127.0.0.1:4318:4318", "127.0.0.1:13133:13133", "127.0.0.1:8889:8889"]
     mem_limit: 256m
+    restart: unless-stopped
     depends_on: [tempo, loki]
 
   tempo:
@@ -101,7 +105,8 @@ services:
     command: ["-config.file=/etc/tempo.yaml"]
     volumes: ["./infra/tempo/tempo.yaml:/etc/tempo.yaml:ro", "tempo-data:/var/tempo"]
     ports: ["127.0.0.1:3200:3200"]
-    mem_limit: 384m
+    mem_limit: 640m          # was 384m: OOM-killed (exit 137) while tracing a few hundred orders
+    restart: unless-stopped  # losing the trace backend must not need a human on a laptop
 
   loki:
     image: grafana/loki:3.1.1
@@ -109,6 +114,7 @@ services:
     volumes: ["./infra/loki/config.yaml:/etc/loki/config.yaml:ro", "loki-data:/loki"]
     ports: ["127.0.0.1:3100:3100"]
     mem_limit: 384m
+    restart: unless-stopped
     healthcheck:
       <<: *hc
       test: ["CMD-SHELL", "wget -qO- http://localhost:3100/ready | grep -q ready"]
@@ -117,13 +123,13 @@ services:
     image: prom/prometheus:v2.54.1
     command:
       - --config.file=/etc/prometheus/prometheus.yml
-      - --web.enable-remote-write-receiver
       - --storage.tsdb.retention.time=2d
     volumes:
       - ./infra/prometheus:/etc/prometheus:ro
       - prom-data:/prometheus
     ports: ["127.0.0.1:9090:9090"]
     mem_limit: 384m
+    restart: unless-stopped
     healthcheck:
       <<: *hc
       test: ["CMD-SHELL", "wget -qO- http://localhost:9090/-/ready"]

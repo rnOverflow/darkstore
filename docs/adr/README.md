@@ -4,3 +4,4 @@
 - [0003 Idempotency, ordering, saga](0003-idempotency-ordering-saga.md)
 - [0004 Rider matching, atomic claim, dispatch ownership](0004-rider-matching-and-dispatch.md)
 - [0005 Realtime tracking gateway](0005-realtime-gateway.md)
+- [0006 Observability, one trace per order](0006-observability.md)

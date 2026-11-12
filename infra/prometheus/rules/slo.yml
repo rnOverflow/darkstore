@@ -1,0 +1,125 @@
+# SLO alert rules. Targets below are objectives we chose, not measurements; see docs/observability.md.
+# Alerts fire in Prometheus (UI: /alerts, and the ALERTS series Grafana can chart). There is no
+# Alertmanager in this stack: add one to route them to a pager (documented in the runbook).
+groups:
+  - name: darkstore-slo
+    rules:
+      - alert: AssignmentWaitSLOBreach
+        expr: |
+          histogram_quantile(0.95, sum by (le) (rate(darkstore_assignment_wait_seconds_bucket[5m]))) > 30
+        for: 5m
+        labels: {severity: warning, slo: matching}
+        annotations:
+          summary: "p95 wait for a rider is {{ $value | humanizeDuration }} (SLO: 30 s)"
+          description: "Ready orders are queueing for riders: fleet saturated, matcher stalled or Redis slow. Dashboard: 3 · Rider matching."
+
+      - alert: FleetStarved
+        # AssignmentWaitSLOBreach cannot see a total stall: waits are only recorded AFTER an
+        # assignment, so when nobody is ever assigned that histogram stays empty. This does.
+        expr: |
+          sum(rate(darkstore_assignments_total{outcome="no_rider"}[5m]))
+            / sum(rate(darkstore_assignments_total[5m])) > 0.9
+        for: 5m
+        labels: {severity: warning, slo: matching}
+        annotations:
+          summary: "{{ $value | humanizePercentage }} of rider searches find nobody"
+          description: "Fleet exhausted or riders stuck (check pickup timeouts and the reconciler). Dashboard: 3 · Rider matching."
+
+      - alert: ConsumerLagHigh
+        expr: max by (group) (darkstore_consumer_lag) > 500
+        for: 2m
+        labels: {severity: warning, slo: pipeline}
+        annotations:
+          summary: "consumer group {{ $labels.group }} is {{ $value }} messages behind"
+          description: "Dashboard: 2 · Kafka consumer lag. Check the group's container and its retry topics."
+
+      - alert: ConsumerLagCritical
+        expr: max by (group) (darkstore_consumer_lag) > 5000
+        for: 2m
+        labels: {severity: critical, slo: pipeline}
+        annotations:
+          summary: "consumer group {{ $labels.group }} is {{ $value }} messages behind"
+
+      - alert: DeadLetteredEvents
+        expr: sum by (group) (increase(darkstore_events_total{outcome="dlq"}[5m])) > 0
+        labels: {severity: critical, slo: pipeline}
+        annotations:
+          summary: "{{ $value }} event(s) dead-lettered by {{ $labels.group }} in 5 m"
+          description: "Fix the cause, then replay with scripts/replay.py (runbook: dead letters)."
+
+      - alert: PipelineLatencyHigh
+        expr: |
+          histogram_quantile(0.95, sum by (le, group) (rate(darkstore_event_age_seconds_bucket[5m]))) > 5
+        for: 5m
+        labels: {severity: warning, slo: pipeline}
+        annotations:
+          summary: "p95 event age at {{ $labels.group }} is {{ $value | humanizeDuration }} (SLO: 5 s)"
+
+      - alert: OrderCancellationRateHigh
+        expr: |
+          sum(increase(darkstore_order_transitions_total{status=~"cancelled|rejected"}[15m]))
+            / sum(increase(darkstore_order_transitions_total{status="created"}[15m])) > 0.1
+          and sum(increase(darkstore_order_transitions_total{status="created"}[15m])) >= 20
+        for: 5m
+        labels: {severity: warning, slo: orders}
+        annotations:
+          summary: "{{ $value | humanizePercentage }} of recent orders were cancelled or rejected (SLO: <10%)"
+
+      - alert: DeliveryLatencySLOBreach
+        expr: |
+          histogram_quantile(0.95, sum by (le) (rate(darkstore_order_age_seconds_bucket{status="delivered"}[15m]))) > 300
+        for: 10m
+        labels: {severity: warning, slo: orders}
+        annotations:
+          summary: "p95 order→delivered is {{ $value | humanizeDuration }} (SLO: 5 min real time)"
+
+      - alert: EtaCoverageLow
+        expr: |
+          sum(increase(darkstore_eta_outcomes_total{covered="true"}[30m]))
+            / sum(increase(darkstore_eta_outcomes_total[30m])) < 0.8
+          and sum(increase(darkstore_eta_outcomes_total[30m])) >= 20
+        for: 10m
+        labels: {severity: warning, slo: eta}
+        annotations:
+          summary: "only {{ $value | humanizePercentage }} of orders arrived within the promised P90 (target 90%, floor 80%)"
+          description: "Possible drift: compare the model with the heuristic on dashboard 4 · ETA, then run make retrain."
+
+      - alert: EtaModelFallingBack
+        expr: |
+          sum(increase(darkstore_eta_predictions_total{source!="model"}[10m]))
+            / sum(increase(darkstore_eta_predictions_total[10m])) > 0.1
+        for: 5m
+        labels: {severity: warning, slo: eta}
+        annotations:
+          summary: "{{ $value | humanizePercentage }} of ETAs are served by the heuristic fallback"
+          description: "The model failed to load or verify (check the eta container logs and models/eta/current)."
+
+      - alert: WebSocketFanoutSlow
+        expr: |
+          histogram_quantile(0.99, sum by (le) (rate(darkstore_ws_fanout_seconds_bucket[5m]))) > 1
+        for: 5m
+        labels: {severity: warning, slo: realtime}
+        annotations:
+          summary: "p99 hub→socket wait is {{ $value | humanizeDuration }} (SLO: 1 s)"
+
+      - alert: WebSocketClientsCutOff
+        expr: sum(increase(darkstore_ws_overflow_total[10m])) > 0
+        labels: {severity: info, slo: realtime}
+        annotations:
+          summary: "{{ $value }} tracking connection(s) were closed because the client stopped reading"
+
+  - name: darkstore-telemetry
+    rules:
+      - alert: TelemetryMissing
+        expr: absent(darkstore_consumer_lag)
+        for: 3m
+        labels: {severity: warning}
+        annotations:
+          summary: "no consumer metrics are arriving: services down or the collector pipeline is broken"
+
+      - alert: ScrapeTargetDown
+        expr: up == 0
+        for: 2m
+        labels: {severity: critical}
+        annotations:
+          summary: "Prometheus cannot scrape {{ $labels.job }}"

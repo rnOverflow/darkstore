@@ -8,6 +8,7 @@ import time
 
 from fastapi import FastAPI, Response, WebSocket, WebSocketDisconnect
 
+from darkstore_common import telemetry
 from darkstore_common.settings import Settings
 from darkstore_common.tokens import Claims, InvalidToken, verify
 
@@ -28,6 +29,7 @@ async def _fail(ws: WebSocket, code: str, message: str) -> None:
 
 
 def create_app(settings: Settings, store: TrackStore, hub: Hub) -> FastAPI:
+    ins = telemetry.instruments()
     app = FastAPI(title="tracking-gateway")
 
     @app.get("/healthz")
@@ -118,10 +120,15 @@ def create_app(settings: Settings, store: TrackStore, hub: Hub) -> FastAPI:
                             await asyncio.wait_for(conn.acked.wait(), settings.ws_stall_timeout)
                         except asyncio.TimeoutError:
                             raise Overflow("client stopped acknowledging") from None
+                    queued_at = msg.pop("_q", None)
                     await asyncio.wait_for(ws.send_text(json.dumps(msg, separators=(",", ":"))), 30)
                     conn.unacked += 1
+                    if queued_at is not None:
+                        ins.ws_fanout.record(time.monotonic() - queued_at)
 
         send_task = asyncio.create_task(sender())
+        conn_attrs = {"role": claims.role}
+        ins.ws_connections.add(1, conn_attrs)
         try:
             while True:
                 recv = asyncio.create_task(asyncio.wait_for(ws.receive_text(), settings.ws_idle_timeout))
@@ -157,11 +164,13 @@ def create_app(settings: Settings, store: TrackStore, hub: Hub) -> FastAPI:
                 else:
                     await _fail(ws, "bad_request", f"unknown frame type {kind!r}")
                     break
-        except (WebSocketDisconnect, Overflow):
-            pass
+        except (WebSocketDisconnect, Overflow) as e:
+            if isinstance(e, Overflow):
+                ins.ws_overflow.add(1)
         except Exception:  # noqa: BLE001
             log.exception("websocket handler failed")
         finally:
+            ins.ws_connections.add(-1, conn_attrs)
             send_task.cancel()
             hub.remove(conn)
             hub.release(conn)

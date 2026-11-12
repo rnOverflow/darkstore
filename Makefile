@@ -2,7 +2,7 @@
 env:
 	@./scripts/gen_env.sh
 
-.PHONY: env up down sync train retrain web e2e test test-int health demo load urls clean
+.PHONY: env up down sync train retrain web e2e test test-int test-alerts dashboards health demo load urls clean
 
 # build the React apps once (nginx serves web/dist)
 web:
@@ -29,6 +29,13 @@ sync:
 
 test: sync
 	uv run --no-sync pytest -q -m 'not integration'
+
+test-alerts:  ## unit-test the SLO alert rules with promtool (needs Docker, not the stack)
+	docker run --rm --entrypoint promtool -v "$$PWD/infra/prometheus:/p:ro" prom/prometheus:v2.54.1 check rules /p/rules/slo.yml
+	docker run --rm --entrypoint promtool -v "$$PWD/infra/prometheus:/p:ro" prom/prometheus:v2.54.1 test rules /p/tests/slo_test.yml
+
+dashboards:  ## regenerate the Grafana dashboards from scripts/gen_dashboards.py
+	python3 scripts/gen_dashboards.py
 
 test-int: sync
 	uv run --no-sync pytest -q -m integration

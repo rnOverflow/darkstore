@@ -44,6 +44,10 @@ class Settings(BaseSettings):
     eta_model_enabled: bool = True
     eta_model_dir: str = "models/eta/current"
     eta_reload_seconds: float = 10.0
+    # observability (empty endpoint = telemetry off; compose points it at the collector)
+    otel_endpoint: str = ""
+    otel_sample_ratio: float = 1.0
+    otel_metric_interval: float = 5.0
     # order simulator
     sim_orders_per_minute: float = 3.0    # base rate in simulated minutes, before rush multipliers
     sim_start_hour: float = 18.0

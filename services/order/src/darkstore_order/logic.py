@@ -8,6 +8,7 @@ from sqlalchemy import func, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from darkstore_common import telemetry
 from darkstore_common.envelope import Envelope
 from darkstore_common.events import make_event
 from darkstore_common.outbox import enqueue
@@ -26,6 +27,15 @@ class NotFound(Exception):
     pass
 
 
+def _note(status: str, created_at: datetime | None) -> None:
+    """Funnel metrics: one count per status entered + real seconds since the order was created."""
+    ins = telemetry.instruments()
+    ins.order_transitions.add(1, {"status": status})
+    if created_at is not None:
+        ins.order_age.record(max(0.0, (datetime.now(timezone.utc) - created_at).total_seconds()),
+                             {"status": status})
+
+
 async def create_order(s: AsyncSession, st: Settings, *, customer_id: str, store_id: str,
                        items: list[dict], lat: float, lng: float,
                        idempotency_key: str | None) -> tuple[str, bool, str]:
@@ -42,9 +52,12 @@ async def create_order(s: AsyncSession, st: Settings, *, customer_id: str, store
         if row.store_id != store_id or row.items != items:
             raise Conflict("Idempotency-Key was already used with a different request")
         return row.order_id, False, row.status
-    ev = make_event("order.created", order_id, customer_id=customer_id, store_id=store_id,
-                    items=items, lat=lat, lng=lng)
-    await enqueue(s, META, st.topic(Topic.ORDER_EVENTS), ev)
+    with telemetry.start_order_trace(order_id, store_id=store_id, items=len(items)):
+        # the root span of the order's trace: every outbox row written inside carries its context
+        ev = make_event("order.created", order_id, customer_id=customer_id, store_id=store_id,
+                        items=items, lat=lat, lng=lng)
+        await enqueue(s, META, st.topic(Topic.ORDER_EVENTS), ev)
+    _note("created", None)
     return order_id, True, "created"
 
 
@@ -64,6 +77,8 @@ async def apply_event(s: AsyncSession, st: Settings, env: Envelope) -> None:
     """
     row = await _lock(s, env.order_id)
     et = env.event_type
+    if is_terminal(row.status):
+        return  # cancelled/delivered/rejected: late events are no-ops (they must not be retried to the DLQ)
     if et in ("rider.picked_up", "rider.delivered"):
         if row.rider_id is None:  # rider.assigned (other topic) not applied yet: retry, don't drop
             raise OutOfOrder(f"{et} before rider.assigned for {env.order_id}")
@@ -87,6 +102,7 @@ async def apply_event(s: AsyncSession, st: Settings, env: Envelope) -> None:
         await enqueue(s, META, out, make_event("order.delivered", env.order_id))
     await s.execute(update(orders).where(orders.c.order_id == env.order_id)
                     .values(status=new, updated_at=func.now()))
+    _note(new, row.created_at)
 
 
 async def cancel_order(s: AsyncSession, st: Settings, order_id: str, reason: str) -> str:
@@ -101,6 +117,7 @@ async def cancel_order(s: AsyncSession, st: Settings, order_id: str, reason: str
                     .values(status="cancelled", cancel_reason=reason, updated_at=func.now()))
     await enqueue(s, META, st.topic(Topic.ORDER_EVENTS),
                   make_event("order.cancelled", order_id, reason=reason))
+    _note("cancelled", row.created_at)
     return "cancelled"
 
 

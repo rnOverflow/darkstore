@@ -7,6 +7,7 @@ from sqlalchemy import select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from darkstore_common import telemetry
 from darkstore_common.city import STORES
 from darkstore_common.envelope import Envelope
 from darkstore_common.events import make_event
@@ -101,30 +102,44 @@ async def match_pending(sm: async_sessionmaker[AsyncSession], index: RiderIndex,
         ids = (await s.execute(select(assignments.c.order_id).where(assignments.c.status == "pending")
                                .order_by(assignments.c.ready_at).limit(limit))).scalars().all()
     out, n, misses = st.topic(Topic.DISPATCH_EVENTS), 0, 0
+    ins = telemetry.instruments()
     for oid in ids:
+        wait: float | None = None   # set when this order was assigned; metered after the commit
         async with sm.begin() as s:
             r = (await s.execute(select(assignments).where(
                 assignments.c.order_id == oid, assignments.c.status == "pending")
                 .with_for_update(skip_locked=True))).first()
             if r is None:
                 continue  # taken by another replica or cancelled meanwhile
+            t0 = time.perf_counter()
             res = await index.match(r.order_id, r.store_lat, r.store_lng, r.dest_lat, r.dest_lng)
+            took = time.perf_counter() - t0
+            ins.match_duration.record(took)
             if res is None:
+                # metered, not traced: a saturated fleet retries every pending order every tick,
+                # and a span per miss would flood the trace backend (tick rate x queue depth)
+                ins.assignments.add(1, {"outcome": "no_rider"})
                 misses += 1
                 if misses >= max_misses:
                     break
                 continue
             misses = 0
             rider_id, eta_min, rider_km = res
-            now = _now()
-            await s.execute(update(assignments).where(assignments.c.order_id == r.order_id).values(
-                status="assigned", rider_id=rider_id, assigned_at=now, attempts=r.attempts + 1,
-                pickup_deadline=now + timedelta(seconds=st.pickup_timeout_seconds)))
-            await _log(s, r.order_id, rider_id, "assigned")
-            await enqueue(s, META, out, make_event(
-                "rider.assigned", r.order_id, rider_id=rider_id, store_lat=r.store_lat,
-                store_lng=r.store_lng, dest_lat=r.dest_lat, dest_lng=r.dest_lng,
-                eta_to_store_s=eta_min * 60, rider_to_store_km=rider_km))
+            with telemetry.order_span("dispatch.match", r.order_id, store_id=r.store_id,
+                                      rider_id=rider_id, search_ms=round(took * 1000, 2)):
+                now = _now()
+                await s.execute(update(assignments).where(assignments.c.order_id == r.order_id).values(
+                    status="assigned", rider_id=rider_id, assigned_at=now, attempts=r.attempts + 1,
+                    pickup_deadline=now + timedelta(seconds=st.pickup_timeout_seconds)))
+                await _log(s, r.order_id, rider_id, "assigned")
+                await enqueue(s, META, out, make_event(
+                    "rider.assigned", r.order_id, rider_id=rider_id, store_lat=r.store_lat,
+                    store_lng=r.store_lng, dest_lat=r.dest_lat, dest_lng=r.dest_lng,
+                    eta_to_store_s=eta_min * 60, rider_to_store_km=rider_km))
+            wait = max(0.0, (now - r.ready_at).total_seconds()) if r.ready_at is not None else 0.0
+        if wait is not None:   # committed: a rolled-back claim must not be counted as an assignment
+            ins.assignments.add(1, {"outcome": "assigned"})
+            ins.assignment_wait.record(wait)
             n += 1
     return n
 
@@ -147,6 +162,7 @@ async def reassign_timed_out(s: AsyncSession, index: RiderIndex, st: Settings) -
             await s.execute(update(assignments).where(assignments.c.order_id == r.order_id).values(
                 pickup_deadline=_now() + timedelta(seconds=st.pickup_timeout_seconds)))
             continue
+        telemetry.instruments().assignments.add(1, {"outcome": "timed_out"})
         await _log(s, r.order_id, r.rider_id, "timed_out")  # log first, then release
         await index.release(r.rider_id, r.order_id, cooldown_s=st.rider_cooldown_seconds)
         await s.execute(update(assignments).where(assignments.c.order_id == r.order_id)

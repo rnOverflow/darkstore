@@ -274,3 +274,22 @@ async def test_a_tracking_token_is_issued_only_when_the_order_is_created_not_on_
         assert first.status_code == 201 and first.json()["tracking_token"]
         replay = await c.http.post("/orders", json=body, headers=h)
         assert replay.status_code == 200 and "tracking_token" not in replay.json()   # replay proves no ownership
+
+
+async def test_late_rider_event_for_a_cancelled_order_is_a_noop_not_a_dead_letter(env):
+    """A rider can still pick up after the saga timeout cancelled the order. The order service never
+    learned of the rider (cancelled orders ignore rider.assigned), so this event used to raise
+    OutOfOrder, retry for minutes and land in the DLQ."""
+    async with stack(env, pick_seconds=30) as c:
+        await c.seed()
+        oid = await c.place()
+        await until(lambda: _eq(c.status(oid), "picking"))
+        assert (await c.http.post(f"/orders/{oid}/cancel")).status_code == 200
+        ev = make_event("rider.picked_up", oid, rider_id="rider-0001")
+        await publish(c.env.kafka_bootstrap, c.env.topic(Topic.DISPATCH_EVENTS), ev)
+
+        async def applied():  # the processed_events row is only committed if the handler did not raise
+            rows = await c.q("select 1 from orders.processed_events where event_id=:e", e=ev.event_id)
+            return bool(rows)
+        await until(applied, timeout=20)
+        assert await c.status(oid) == "cancelled"

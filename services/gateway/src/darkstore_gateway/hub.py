@@ -9,11 +9,13 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import time
 from collections import defaultdict
 
 from fastapi import WebSocket
 from redis.asyncio import Redis
 
+from darkstore_common import telemetry
 from darkstore_common.tokens import Claims
 
 from .queues import Overflow, OutQueue, stream_id_key
@@ -35,7 +37,8 @@ class Conn:
         self.acked = asyncio.Event()
 
     def push(self, msg: dict) -> None:
-        out = {"type": "event", "id": msg["id"], "kind": msg["kind"], "data": msg["data"]}
+        out = {"type": "event", "id": msg["id"], "kind": msg["kind"], "data": msg["data"],
+               "_q": time.monotonic()}   # stripped by the sender: measures time spent in the queue
         self.queue.put(out, droppable=msg["kind"] != "status")
 
 
@@ -91,6 +94,7 @@ class Hub:
         for conn in list(self.by_order.get(msg["order_id"], ())):
             self.events_routed += 1
             buf = conn.syncing.get(msg["order_id"])
+            dropped_before = conn.queue.dropped
             try:
                 if buf is not None:
                     buf.append(msg)           # snapshot in flight: flushed after it is sent
@@ -98,6 +102,8 @@ class Hub:
                     floor = conn.floor.get(msg["order_id"])
                     if floor is None or stream_id_key(msg["id"]) > stream_id_key(floor):
                         conn.push(msg)
+                if conn.queue.dropped > dropped_before:
+                    telemetry.instruments().ws_dropped.add(conn.queue.dropped - dropped_before)
             except Overflow:
                 log.warning("connection overflow for order %s: closing it", msg["order_id"])
                 conn.overflow = True

@@ -22,11 +22,11 @@ def _now() -> datetime:
 class Envelope(BaseModel):
     model_config = ConfigDict(frozen=True)
 
-    event_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    event_id: str = Field(default_factory=lambda: str(uuid.uuid4()), min_length=1, max_length=64)
     event_type: str
     schema_version: int = 1
     occurred_at: datetime = Field(default_factory=_now)
-    order_id: str = Field(min_length=1)
+    order_id: str = Field(min_length=1, max_length=64)
     payload: dict[str, Any] = Field(default_factory=dict)
 
     def partition_key(self) -> bytes:

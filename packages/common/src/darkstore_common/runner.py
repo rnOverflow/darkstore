@@ -5,6 +5,7 @@ import asyncio
 import logging
 import signal
 
+from . import telemetry
 from .settings import Settings
 
 
@@ -19,6 +20,10 @@ def main(serve, default_port: int = 8000) -> None:
         settings = Settings()
         if "http_port" not in settings.model_fields_set:
             settings = settings.model_copy(update={"http_port": default_port})
-        await serve(settings, stop)
+        telemetry.init_from_settings(telemetry.service_name_from(serve.__module__), settings)
+        try:
+            await serve(settings, stop)
+        finally:
+            await asyncio.to_thread(telemetry.shutdown)   # flush the last spans and metrics
 
     asyncio.run(_run())

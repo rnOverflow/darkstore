@@ -7,6 +7,7 @@ import random
 import time
 
 from darkstore_common.city import STORES
+from darkstore_common import telemetry
 from darkstore_common.events import make_event
 from darkstore_common.geo import ROAD_FACTOR, step_towards
 from darkstore_common.kafka import make_producer
@@ -60,9 +61,10 @@ async def serve(settings: Settings, stop: asyncio.Event, ready: asyncio.Event | 
         await seed_riders(index, settings, rng)
 
         async def emit(order_id: str, event_type: str, rider_id: str) -> None:
-            async with sm.begin() as s:
-                await enqueue(s, META, dispatch_topic, make_event(event_type, order_id,
-                                                                   rider_id=rider_id))
+            with telemetry.order_span(f"rider.{event_type.split('.')[1]}", order_id, rider_id=rider_id):
+                async with sm.begin() as s:
+                    await enqueue(s, META, dispatch_topic, make_event(event_type, order_id,
+                                                                       rider_id=rider_id))
 
         async def advance(rid: str, h: dict[str, str], hour: float, raining: bool, dt_h: float) -> None:
             """One tick for a rider holding an order. Every phase is retryable: if we crash or an

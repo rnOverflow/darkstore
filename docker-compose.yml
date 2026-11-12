@@ -1,0 +1,145 @@
+name: darkstore
+
+# Memory limits sized for a Docker VM with ~4 GB.
+x-healthy: &hc
+  interval: 5s
+  timeout: 5s
+  retries: 24
+  start_period: 5s
+
+services:
+  redpanda:
+    image: redpandadata/redpanda:v24.2.7
+    command:
+      - redpanda
+      - start
+      - --mode=dev-container
+      - --smp=1
+      - --memory=512M
+      - --reserve-memory=0M
+      - --overprovisioned
+      - --kafka-addr=internal://0.0.0.0:9092,external://0.0.0.0:19092
+      - --advertise-kafka-addr=internal://redpanda:9092,external://localhost:19092
+      - --pandaproxy-addr=internal://0.0.0.0:8082
+      - --advertise-pandaproxy-addr=internal://redpanda:8082
+      - --schema-registry-addr=0.0.0.0:8081
+    ports: ["19092:19092", "8081:8081", "9644:9644"]
+    mem_limit: 900m
+    volumes: [redpanda-data:/var/lib/redpanda/data]
+    healthcheck:
+      <<: *hc
+      test: ["CMD-SHELL", "rpk cluster health | grep -E 'Healthy:.+true' || exit 1"]
+
+  console:
+    image: redpandadata/console:v2.7.2
+    environment:
+      KAFKA_BROKERS: redpanda:9092
+      KAFKA_SCHEMAREGISTRY_ENABLED: "true"
+      KAFKA_SCHEMAREGISTRY_URLS: http://redpanda:8081
+    ports: ["8080:8080"]
+    mem_limit: 256m
+    depends_on:
+      redpanda: {condition: service_healthy}
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-darkstore}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-darkstore-local}
+      POSTGRES_DB: ${POSTGRES_DB:-darkstore}
+    ports: ["5432:5432"]
+    mem_limit: 256m
+    volumes:
+      - pg-data:/var/lib/postgresql/data
+      - ./infra/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      <<: *hc
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-darkstore} -d ${POSTGRES_DB:-darkstore}"]
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--save", "", "--appendonly", "no", "--maxmemory", "128mb"]
+    ports: ["6379:6379"]
+    mem_limit: 192m
+    healthcheck:
+      <<: *hc
+      test: ["CMD", "redis-cli", "ping"]
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.108.0
+    command: ["--config=/etc/otelcol/config.yaml"]
+    volumes: ["./infra/otel/config.yaml:/etc/otelcol/config.yaml:ro"]
+    ports: ["4317:4317", "4318:4318", "13133:13133", "8889:8889"]
+    mem_limit: 256m
+    depends_on: [tempo, loki]
+
+  tempo:
+    image: grafana/tempo:2.5.0
+    command: ["-config.file=/etc/tempo.yaml"]
+    volumes: ["./infra/tempo/tempo.yaml:/etc/tempo.yaml:ro", "tempo-data:/var/tempo"]
+    ports: ["3200:3200"]
+    mem_limit: 384m
+
+  loki:
+    image: grafana/loki:3.1.1
+    command: ["-config.file=/etc/loki/config.yaml"]
+    volumes: ["./infra/loki/config.yaml:/etc/loki/config.yaml:ro", "loki-data:/loki"]
+    ports: ["3100:3100"]
+    mem_limit: 384m
+    healthcheck:
+      <<: *hc
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3100/ready | grep -q ready"]
+
+  prometheus:
+    image: prom/prometheus:v2.54.1
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --web.enable-remote-write-receiver
+      - --storage.tsdb.retention.time=2d
+    volumes:
+      - ./infra/prometheus:/etc/prometheus:ro
+      - prom-data:/prometheus
+    ports: ["9090:9090"]
+    mem_limit: 384m
+    healthcheck:
+      <<: *hc
+      test: ["CMD-SHELL", "wget -qO- http://localhost:9090/-/ready"]
+
+  grafana:
+    image: grafana/grafana:11.2.0
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-darkstore-local}
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+      GF_USERS_DEFAULT_THEME: dark
+    volumes:
+      - ./infra/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./infra/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+    ports: ["3000:3000"]
+    mem_limit: 384m
+    depends_on: [prometheus, tempo, loki]
+    healthcheck:
+      <<: *hc
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3000/api/health | grep -q ok"]
+
+  mlflow:
+    image: ghcr.io/mlflow/mlflow:v2.16.0
+    command: >
+      mlflow server --host 0.0.0.0 --port 5000
+      --backend-store-uri sqlite:////mlflow/mlflow.db
+      --default-artifact-root /mlflow/artifacts
+    volumes: [mlflow-data:/mlflow]
+    ports: ["5001:5000"]
+    mem_limit: 640m
+    healthcheck:
+      <<: *hc
+      test: ["CMD-SHELL", "python -c \"import urllib.request;urllib.request.urlopen('http://localhost:5000/health')\""]
+
+volumes:
+  redpanda-data:
+  pg-data:
+  tempo-data:
+  loki-data:
+  prom-data:
+  grafana-data:
+  mlflow-data:

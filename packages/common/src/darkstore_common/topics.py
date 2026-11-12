@@ -26,6 +26,7 @@ EVENT_TOPICS: dict[str, Topic] = {
     "rider.picked_up": Topic.DISPATCH_EVENTS,
     "rider.delivered": Topic.DISPATCH_EVENTS,
     "rider.position": Topic.RIDER_POSITIONS,
+    "eta.updated": Topic.ETA_EVENTS,
 }
 
 

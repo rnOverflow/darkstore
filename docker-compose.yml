@@ -141,7 +141,7 @@ services:
     command: >
       mlflow server --host 0.0.0.0 --port 5000
       --backend-store-uri sqlite:////mlflow/mlflow.db
-      --default-artifact-root /mlflow/artifacts
+      --serve-artifacts --artifacts-destination /mlflow/artifacts
     volumes: [mlflow-data:/mlflow]
     ports: ["127.0.0.1:5001:5000"]
     mem_limit: 640m
@@ -162,6 +162,7 @@ services:
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-darkstore}:${POSTGRES_PASSWORD:?run make env to generate .env}@postgres:5432/${POSTGRES_DB:-darkstore}
       KAFKA_BOOTSTRAP: redpanda:9092
       REDIS_URL: redis://:${REDIS_PASSWORD:?run make env to generate .env}@redis:6379/0
+      SIM_START_HOUR: ${SIM_START_HOUR:-18}        # one shared simulated clock for every service
       HTTP_PORT: "8001"
     ports: ["127.0.0.1:8001:8001"]
     mem_limit: 192m
@@ -192,7 +193,7 @@ services:
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]
     pids_limit: 200
-    environment: {<<: *app-env, SERVICE: picking}
+    environment: {<<: *app-env, SERVICE: picking, PICK_VARIABLE: "true"}
     mem_limit: 192m
     depends_on: {<<: *app-deps, order: {condition: service_healthy}}
 
@@ -225,9 +226,21 @@ services:
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]
     pids_limit: 200
-    environment: {<<: *app-env, SERVICE: simulator, ORDER_API_URL: http://order:8001}
+    environment: {<<: *app-env, SERVICE: simulator, ORDER_API_URL: http://order:8001, SIM_ORDERS_PER_MINUTE: "${SIM_ORDERS_PER_MINUTE:-3}"}
     mem_limit: 192m
     profiles: [demo]
+    depends_on: {<<: *app-deps, order: {condition: service_healthy}}
+
+  eta:
+    image: darkstore-app:dev
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    pids_limit: 200
+    environment: {<<: *app-env, SERVICE: eta, ETA_MODEL_DIR: /app/models/eta/current}
+    volumes: ["./models:/app/models:ro"]   # model bundles are pickles: mount only what you trust
+    mem_limit: 512m
     depends_on: {<<: *app-deps, order: {condition: service_healthy}}
 
 volumes:

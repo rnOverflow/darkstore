@@ -115,7 +115,7 @@ async def match_pending(sm: async_sessionmaker[AsyncSession], index: RiderIndex,
                     break
                 continue
             misses = 0
-            rider_id, eta_min = res
+            rider_id, eta_min, rider_km = res
             now = _now()
             await s.execute(update(assignments).where(assignments.c.order_id == r.order_id).values(
                 status="assigned", rider_id=rider_id, assigned_at=now, attempts=r.attempts + 1,
@@ -124,7 +124,7 @@ async def match_pending(sm: async_sessionmaker[AsyncSession], index: RiderIndex,
             await enqueue(s, META, out, make_event(
                 "rider.assigned", r.order_id, rider_id=rider_id, store_lat=r.store_lat,
                 store_lng=r.store_lng, dest_lat=r.dest_lat, dest_lng=r.dest_lng,
-                eta_to_store_s=eta_min * 60))
+                eta_to_store_s=eta_min * 60, rider_to_store_km=rider_km))
             n += 1
     return n
 

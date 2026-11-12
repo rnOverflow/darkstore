@@ -54,11 +54,23 @@ class RiderAssigned(RiderRef):
     dest_lat: float = 0.0
     dest_lng: float = 0.0
     eta_to_store_s: float = 0.0
+    rider_to_store_km: float = Field(default=0.0, ge=0, le=60)
 
 
 class RiderPosition(RiderRef):
     lat: float
     lng: float
+
+
+class EtaUpdated(BaseModel):
+    stage: str                  # created | picking | assigned | out_for_delivery
+    p50_min: float              # minutes REMAINING, in simulated minutes
+    p90_min: float
+    p50_real_s: float           # the same, in wall-clock seconds (what a client should count down)
+    p90_real_s: float
+    source: str                 # model | heuristic
+    model_version: str | None = None
+    elapsed_min: float = 0.0
 
 
 class Empty(BaseModel):
@@ -78,6 +90,7 @@ PAYLOADS: dict[str, type[BaseModel]] = {
     "rider.picked_up": RiderRef,
     "rider.delivered": RiderRef,
     "rider.position": RiderPosition,
+    "eta.updated": EtaUpdated,
 }
 
 

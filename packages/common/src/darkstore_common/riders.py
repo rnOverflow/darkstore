@@ -17,7 +17,7 @@ import time
 
 from redis.asyncio import Redis
 
-from .geo import MATCH_RES, cell_of, ring
+from .geo import MATCH_RES, cell_of, haversine_km, ring
 from .matching import Candidate, Weights, rank
 
 # KEYS[1]=rider hash  KEYS[2]=order_rider key
@@ -174,11 +174,11 @@ class RiderIndex:
 
     async def match(self, order_id: str, store_lat: float, store_lng: float, dest_lat: float,
                     dest_lng: float, *, want: int = 8, max_k: int = 8,
-                    weights: Weights = Weights()) -> tuple[str, float] | None:
-        """Find the best claimable rider. Returns (rider_id, eta_minutes) or None if nobody is free."""
+                    weights: Weights = Weights()) -> tuple[str, float, float] | None:
+        """Find the best claimable rider. Returns (rider_id, eta_minutes, km_to_store) or None."""
         held = await self.order_rider(order_id)  # crash-retry: reuse the rider already holding it
         if held:
-            return held, 0.0
+            return held, 0.0, 0.0
         for attempt in range(4):
             # fresh view each time: riders claimed by competing matchers have left the idle sets,
             # and a wider net finds the next ones. None only when a fresh search finds nobody.
@@ -188,7 +188,7 @@ class RiderIndex:
             for _, eta, cand in rank(found, store_lat, store_lng, weights):
                 if await self.claim(cand.rider_id, order_id, store_lat=store_lat,
                                     store_lng=store_lng, dest_lat=dest_lat, dest_lng=dest_lng):
-                    return cand.rider_id, eta
+                    return cand.rider_id, eta, haversine_km(cand.lat, cand.lng, store_lat, store_lng)
                 # lost the race for this rider: try the next-best one
         return None
 

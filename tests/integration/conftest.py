@@ -81,7 +81,7 @@ async def env(pg_url, kafka_bootstrap, redis_url) -> Settings:
     await rds.aclose()
     engine = create_async_engine(pg_url)
     async with engine.begin() as conn:
-        for schema in ("orders", "inventory", "picking", "dispatch", "rider_sim", "ctest"):
+        for schema in ("orders", "inventory", "picking", "dispatch", "rider_sim", "eta", "ctest"):
             await conn.execute(text(f'DROP SCHEMA IF EXISTS "{schema}" CASCADE'))
     await engine.dispose()
     settings = Settings(database_url=pg_url, kafka_bootstrap=kafka_bootstrap,

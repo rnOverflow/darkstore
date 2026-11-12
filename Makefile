@@ -2,7 +2,7 @@
 env:
 	@./scripts/gen_env.sh
 
-.PHONY: env up down sync test test-int health demo load urls clean
+.PHONY: env up down sync train retrain test test-int health demo load urls clean
 
 up: env
 	docker compose up -d --build --wait --wait-timeout 300
@@ -29,7 +29,16 @@ test: sync
 test-int: sync
 	uv run --no-sync pytest -q -m integration
 
+# generate simulated trips, train the ETA model, log to MLflow, write docs/ml/eta-report.md
+train: sync
+	uv run --no-sync python -m darkstore_eta.train --mlflow-uri http://localhost:5001
+
+# retrain on fresh trips; promotes to models/eta/current only if it beats the live model
+retrain: sync
+	uv run --no-sync python -m darkstore_eta.retrain --mlflow-uri http://localhost:5001
+
 demo: up
+	@test -f models/eta/current/meta.json || $(MAKE) --no-print-directory train
 	docker compose --profile demo up -d simulator
 	@sleep 20
 	@./scripts/demo_stats.sh

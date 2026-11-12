@@ -10,8 +10,10 @@ import uuid
 
 import httpx
 
-from darkstore_common.city import STORES, nearest_store, random_point, sim_hour
+from darkstore_common.city import STORES, nearest_store, random_point
+from darkstore_common.riders import make_redis
 from darkstore_common.settings import Settings
+from darkstore_common.simclock import load_clock
 
 from .demand import orders_per_minute
 
@@ -40,7 +42,9 @@ def new_order(rng: random.Random) -> dict:
 
 async def serve(settings: Settings, stop: asyncio.Event, ready: asyncio.Event | None = None):
     rng = random.Random(1234)
-    t0, placed, failed = time.time(), 0, 0
+    placed, failed = 0, 0
+    redis = make_redis(settings.redis_url)
+    clock = await load_clock(redis, settings.sim_start_hour, settings.sim_speed)
     sem = asyncio.Semaphore(50)
     tasks: set[asyncio.Task] = set()
 
@@ -60,7 +64,7 @@ async def serve(settings: Settings, stop: asyncio.Event, ready: asyncio.Event | 
         if ready:
             ready.set()
         while not stop.is_set():
-            hour = sim_hour(settings.sim_start_hour, settings.sim_speed, time.time() - t0)
+            hour = clock.hour()
             per_real_s = orders_per_minute(hour, settings.sim_orders_per_minute) \
                 * settings.sim_speed / 60.0
             for _ in range(poisson(rng, per_real_s * TICK)):
@@ -73,3 +77,4 @@ async def serve(settings: Settings, stop: asyncio.Event, ready: asyncio.Event | 
                          hour, per_real_s, placed, failed, len(STORES))
             await asyncio.sleep(TICK)
         await asyncio.gather(*tasks, return_exceptions=True)
+    await redis.aclose()

@@ -41,7 +41,7 @@ def assert_no_double_assignment(log):
 
 
 @asynccontextmanager
-async def fleet(env, seed=(), dispatchers=1, **overrides):
+async def fleet(env, seed=(), dispatchers=1, extra=(), **overrides):
     """order + inventory + picking + dispatch + rider-sim. seed: (id, lat, lng, flaky) tuples; otherwise rider-sim seeds `riders` of them."""
     port = _port()
     base = dict(http_port=port, sim_speed=600.0, sim_tick=0.1, pickup_timeout_seconds=20.0,
@@ -58,7 +58,7 @@ async def fleet(env, seed=(), dispatchers=1, **overrides):
     ctx.rds = rds
     async with AsyncExitStack() as x:
         svcs = (serve_order, serve_inventory, serve_picking, serve_rider_sim,
-                *[serve_dispatch] * dispatchers)  # >1 dispatcher: matchers genuinely race for riders
+                *[serve_dispatch] * dispatchers, *extra)  # >1 dispatcher: matchers genuinely race for riders
         for svc in svcs:
             await x.enter_async_context(running(lambda stop, svc=svc: svc(st, stop)))
         await until(lambda: _ok(ctx), timeout=60)

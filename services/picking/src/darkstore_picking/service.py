@@ -2,14 +2,18 @@
 from __future__ import annotations
 
 import asyncio
+import random
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import select, update
+from sqlalchemy import func, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from darkstore_common.events import make_event
 from darkstore_common.outbox import enqueue
+from darkstore_common import world
 from darkstore_common.loops import run_loop
+from darkstore_common.riders import make_redis
+from darkstore_common.simclock import load_clock
 from darkstore_common.service import run_service
 from darkstore_common.settings import Settings
 from darkstore_common.topics import Topic
@@ -19,10 +23,20 @@ from .models import META, picks
 
 async def serve(settings: Settings, stop: asyncio.Event, ready: asyncio.Event | None = None):
     out = settings.topic(Topic.PICKING_EVENTS)
+    rng = random.Random(7)
+    redis = make_redis(settings.redis_url) if settings.pick_variable else None
+    clock = await load_clock(redis, settings.sim_start_hour, settings.sim_speed) if redis else None
 
     async def handler(s, env):
         if env.event_type == "inventory.reserved":
-            due = datetime.now(timezone.utc) + timedelta(seconds=settings.pick_seconds)
+            seconds = settings.pick_seconds
+            if settings.pick_variable:      # same physics the ETA model is trained on
+                queue = (await s.execute(select(func.count()).select_from(picks).where(
+                    picks.c.store_id == env.payload["store_id"], picks.c.status == "started"))).scalar_one()
+                day = clock.day()
+                seconds = clock.real_seconds(world.pick_minutes(
+                    rng, max(0, queue - world.PICKERS_PER_STORE), world.is_raining(day)))
+            due = datetime.now(timezone.utc) + timedelta(seconds=seconds)
             r = await s.execute(pg_insert(picks).values(
                 order_id=env.order_id, store_id=env.payload["store_id"], status="started", due_at=due)
                 .on_conflict_do_nothing().returning(picks.c.order_id))
@@ -53,7 +67,11 @@ async def serve(settings: Settings, stop: asyncio.Event, ready: asyncio.Event | 
                                                            store_id=r.store_id, pick_seconds=took))
         await run_loop(stop, step, settings.sweep_interval, "picking-sweeper")
 
-    await run_service(settings, meta=META, group="picking",
-                      consumes=[Topic.INVENTORY_EVENTS, Topic.ORDER_EVENTS],
-                      produces=[Topic.PICKING_EVENTS], handler=handler, stop=stop,
-                      extra=[sweeper], ready=ready)
+    try:
+        await run_service(settings, meta=META, group="picking",
+                          consumes=[Topic.INVENTORY_EVENTS, Topic.ORDER_EVENTS],
+                          produces=[Topic.PICKING_EVENTS], handler=handler, stop=stop,
+                          extra=[sweeper], ready=ready)
+    finally:
+        if redis:
+            await redis.aclose()

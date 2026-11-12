@@ -12,3 +12,4 @@ mlruns/
 test-results/
 playwright-report/
 .DS_Store
+models/

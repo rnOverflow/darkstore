@@ -12,7 +12,8 @@ class Settings(BaseSettings):
     topic_prefix: str = "darkstore"
     topic_partitions: int = 3
     retry_delays: tuple[str, ...] = ("5s", "30s", "5m")
-    pick_seconds: float = 3.0
+    pick_variable: bool = False   # True: lognormal pick time with picker queues (world.pick_minutes)
+    pick_seconds: float = 5.0   # = 2.5 simulated minutes at the default 30x, matching the ETA world
     order_timeout_seconds: float = 600.0
     sweep_interval: float = 0.5
     seed_stock: bool = True
@@ -26,6 +27,10 @@ class Settings(BaseSettings):
     rider_cooldown_seconds: float = 30.0
     match_interval: float = 0.2
     reconcile_grace_seconds: float = 30.0   # a Redis claim older than this with no DB backing is leaked
+    # ETA serving
+    eta_model_enabled: bool = True
+    eta_model_dir: str = "models/eta/current"
+    eta_reload_seconds: float = 10.0
     # order simulator
     sim_orders_per_minute: float = 3.0    # base rate in simulated minutes, before rush multipliers
     sim_start_hour: float = 18.0

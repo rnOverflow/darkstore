@@ -55,6 +55,16 @@ def test_parse_delay():
         parse_delay("soon")
 
 
+def test_rider_events_carry_task_details_and_positions_are_typed():
+    e = make_event("rider.assigned", "o1", rider_id="r1", store_lat=12.9, store_lng=77.6,
+                   dest_lat=12.95, dest_lng=77.62, eta_to_store_s=240)
+    assert e.payload["rider_id"] == "r1" and e.payload["eta_to_store_s"] == 240
+    assert make_event("rider.delivered", "o1", rider_id="r1").payload == {"rider_id": "r1"}
+    pos = make_event("rider.position", "o1", rider_id="r1", lat=12.9, lng=77.6)
+    assert EVENT_TOPICS["rider.position"] is Topic.RIDER_POSITIONS
+    assert pos.payload["lat"] == 12.9
+
+
 def test_make_event_validates_payload():
     e = make_event("order.created", "o1", customer_id="c1", store_id="s1",
                    items=[{"sku": "milk", "qty": 2}])

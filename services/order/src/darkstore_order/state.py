@@ -18,6 +18,7 @@ EVENTS = {
     "picking.completed": ("picking", "picked"),
     "rider.assigned": ("picked", "assigned"),
     "rider.picked_up": ("assigned", "picked_up"),
+    "rider.delivered": ("out_for_delivery", "delivered"),
     "order.out_for_delivery": ("picked_up", "out_for_delivery"),
     "order.delivered": ("out_for_delivery", "delivered"),
 }

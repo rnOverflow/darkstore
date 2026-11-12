@@ -69,12 +69,15 @@ services:
 
   redis:
     image: redis:7-alpine
-    command: ["redis-server", "--save", "", "--appendonly", "no", "--maxmemory", "128mb"]
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?run make env to generate .env}
+    command: ["redis-server", "--save", "", "--appendonly", "no", "--maxmemory", "128mb",
+              "--requirepass", "${REDIS_PASSWORD:?run make env to generate .env}"]
     ports: ["127.0.0.1:6379:6379"]
     mem_limit: 192m
     healthcheck:
       <<: *hc
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD-SHELL", "redis-cli -a \"$$REDIS_PASSWORD\" --no-auth-warning ping | grep -q PONG"]
 
   otel-collector:
     image: otel/opentelemetry-collector-contrib:0.108.0
@@ -158,6 +161,7 @@ services:
       SERVICE: order
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-darkstore}:${POSTGRES_PASSWORD:?run make env to generate .env}@postgres:5432/${POSTGRES_DB:-darkstore}
       KAFKA_BOOTSTRAP: redpanda:9092
+      REDIS_URL: redis://:${REDIS_PASSWORD:?run make env to generate .env}@redis:6379/0
       HTTP_PORT: "8001"
     ports: ["127.0.0.1:8001:8001"]
     mem_limit: 192m
@@ -165,6 +169,7 @@ services:
       redpanda: {condition: service_healthy}
       redpanda-config: {condition: service_completed_successfully}
       postgres: {condition: service_healthy}
+      redis: {condition: service_healthy}
     healthcheck:
       <<: *hc
       test: ["CMD-SHELL", "python -c \"import urllib.request;urllib.request.urlopen('http://localhost:8001/healthz')\""]
@@ -189,6 +194,40 @@ services:
     pids_limit: 200
     environment: {<<: *app-env, SERVICE: picking}
     mem_limit: 192m
+    depends_on: {<<: *app-deps, order: {condition: service_healthy}}
+
+  dispatch:
+    image: darkstore-app:dev
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    pids_limit: 200
+    environment: {<<: *app-env, SERVICE: dispatch}
+    mem_limit: 192m
+    depends_on: {<<: *app-deps, order: {condition: service_healthy}}
+
+  rider-sim:
+    image: darkstore-app:dev
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    pids_limit: 200
+    environment: {<<: *app-env, SERVICE: rider_sim, RIDERS: "120", FLAKY_RATE: "0.05"}
+    mem_limit: 192m
+    depends_on: {<<: *app-deps, order: {condition: service_healthy}}
+
+  simulator:
+    image: darkstore-app:dev
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    pids_limit: 200
+    environment: {<<: *app-env, SERVICE: simulator, ORDER_API_URL: http://order:8001}
+    mem_limit: 192m
+    profiles: [demo]
     depends_on: {<<: *app-deps, order: {condition: service_healthy}}
 
 volumes:

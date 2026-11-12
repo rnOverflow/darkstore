@@ -1,6 +1,6 @@
 # random local credentials, generated once and never committed (see .env.example)
 env:
-	@test -f .env || ./scripts/gen_env.sh
+	@./scripts/gen_env.sh
 
 .PHONY: env up down sync test test-int health demo load urls clean
 
@@ -30,7 +30,10 @@ test-int: sync
 	uv run --no-sync pytest -q -m integration
 
 demo: up
-	@echo "demo: simulator arrives in P2 (see PLAN.md)"; $(MAKE) --no-print-directory urls
+	docker compose --profile demo up -d simulator
+	@sleep 20
+	@./scripts/demo_stats.sh
+	@$(MAKE) --no-print-directory urls
 
 load:
 	@echo "load: Locust arrives in P6 (see PLAN.md)"

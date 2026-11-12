@@ -44,8 +44,21 @@ class PickingCompleted(BaseModel):
     pick_seconds: float = 0.0
 
 
-class RiderAssigned(BaseModel):
+class RiderRef(BaseModel):
     rider_id: str
+
+
+class RiderAssigned(RiderRef):
+    store_lat: float = 0.0
+    store_lng: float = 0.0
+    dest_lat: float = 0.0
+    dest_lng: float = 0.0
+    eta_to_store_s: float = 0.0
+
+
+class RiderPosition(RiderRef):
+    lat: float
+    lng: float
 
 
 class Empty(BaseModel):
@@ -62,7 +75,9 @@ PAYLOADS: dict[str, type[BaseModel]] = {
     "picking.started": PickingStarted,
     "picking.completed": PickingCompleted,
     "rider.assigned": RiderAssigned,
-    "rider.picked_up": RiderAssigned,
+    "rider.picked_up": RiderRef,
+    "rider.delivered": RiderRef,
+    "rider.position": RiderPosition,
 }
 
 

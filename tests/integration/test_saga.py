@@ -38,6 +38,10 @@ class Ctx:
         async with self.engine.connect() as c:
             return (await c.execute(text(sql), p)).all()
 
+    async def q_exec(self, sql, **p):
+        async with self.engine.begin() as c:
+            await c.execute(text(sql), p)
+
     async def status(self, oid):
         rows = await self.q("select status from orders.orders where order_id=:o", o=oid)
         return rows[0][0] if rows else None
@@ -224,6 +228,10 @@ async def test_picking_ignores_reserved_that_arrives_after_cancel(env):
         await c.wait_table("picking.picks")
         await publish(env.kafka_bootstrap, env.topic(Topic.ORDER_EVENTS),
                       make_event("order.cancelled", "ghost"))
+
+        async def tombstoned():  # different topics are not ordered: wait until the cancel is applied
+            return (await c.q("select status from picking.picks where order_id='ghost'")) == [("cancelled",)]
+        await until(tombstoned, timeout=30)
         await publish(env.kafka_bootstrap, env.topic(Topic.INVENTORY_EVENTS),
                       make_event("inventory.reserved", "ghost", store_id="s1", items=ITEMS))
         await asyncio.sleep(5)

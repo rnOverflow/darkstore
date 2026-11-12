@@ -17,7 +17,7 @@ Extra = Callable[[async_sessionmaker[AsyncSession], asyncio.Event], Awaitable[No
 
 
 async def run_service(settings: Settings, *, meta: ServiceMeta, group: str,
-                      consumes: Sequence[Topic], handler: Handler, stop: asyncio.Event,
+                      consumes: Sequence[Topic], handler: Handler | None, stop: asyncio.Event,
                       produces: Sequence[Topic] = (), extra: Sequence[Extra] = (),
                       ready: asyncio.Event | None = None) -> None:
     engine = make_engine(settings.database_url)
@@ -31,8 +31,10 @@ async def run_service(settings: Settings, *, meta: ServiceMeta, group: str,
     names = [settings.topic(t) for t in {*consumes, *produces}] + runner.owned_topics()
     await ensure_topics(settings.kafka_bootstrap, names, settings.topic_partitions)
     relay = OutboxRelay(sm, meta, producer)
-    tasks = [asyncio.create_task(c) for c in (runner.run(stop), relay.run(stop),
-                                              *[e(sm, stop) for e in extra])]
+    loops = [relay.run(stop), *[e(sm, stop) for e in extra]]
+    if consumes:  # producer-only services (e.g. rider-sim) have nothing to consume
+        loops.insert(0, runner.run(stop))
+    tasks = [asyncio.create_task(c) for c in loops]
     if ready:
         ready.set()
     try:

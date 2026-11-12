@@ -16,7 +16,7 @@ check "redpanda (kafka admin)"   curl -sf http://localhost:9644/v1/status/ready
 check "schema registry"          curl -sf http://localhost:8081/subjects
 check "redpanda console"         curl -sf http://localhost:8080/admin/health
 check "postgres"                 docker compose exec -T postgres pg_isready -U "${POSTGRES_USER:-darkstore}"
-check "redis"                    docker compose exec -T redis redis-cli ping
+check "redis"                    docker compose exec -T redis sh -c 'redis-cli -a "$REDIS_PASSWORD" --no-auth-warning ping'
 check "otel collector"           curl -sf http://localhost:13133/
 check "tempo"                    curl -sf http://localhost:3200/ready
 check "loki"                     curl -sf http://localhost:3100/ready

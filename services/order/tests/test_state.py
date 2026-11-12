@@ -14,6 +14,12 @@ def test_happy_path_transitions():
         assert s == expected
 
 
+def test_rider_delivered_completes_an_out_for_delivery_order():
+    assert next_status("out_for_delivery", "rider.delivered") == "delivered"
+    with pytest.raises(OutOfOrder):
+        next_status("assigned", "rider.delivered")
+
+
 def test_rejection_is_terminal():
     assert next_status("created", "inventory.rejected") == "rejected"
     assert is_terminal("rejected")

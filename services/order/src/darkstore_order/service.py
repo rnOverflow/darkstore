@@ -16,7 +16,7 @@ from .models import META
 
 async def serve(settings: Settings, stop: asyncio.Event, ready: asyncio.Event | None = None):
     async def handler(session, env):
-        await logic.apply_event(session, env)
+        await logic.apply_event(session, settings, env)
 
     async def http(sm, stop):
         server = uvicorn.Server(uvicorn.Config(create_app(sm, settings), host="0.0.0.0",

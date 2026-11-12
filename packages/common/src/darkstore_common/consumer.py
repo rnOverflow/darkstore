@@ -12,7 +12,7 @@ import time
 from collections.abc import Awaitable, Callable
 
 from aiokafka import AIOKafkaConsumer, AIOKafkaProducer, ConsumerRecord, TopicPartition
-from aiokafka.errors import CommitFailedError
+from aiokafka.errors import CommitFailedError, IllegalStateError
 from pydantic import ValidationError
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import DBAPIError
@@ -21,6 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from .db import ServiceMeta
 from .envelope import SUPPORTED_SCHEMA_VERSION, Envelope
 from .events import PAYLOADS
+from .topics import EVENT_TOPICS
 from .topics import dlq_topic, parse_delay, retry_topic
 
 log = logging.getLogger("darkstore.consumer")
@@ -69,7 +70,10 @@ class ConsumerRunner:
             while not stop.is_set():
                 for tp, at in list(paused.items()):
                     if at <= time.time():
-                        consumer.resume(tp)
+                        try:
+                            consumer.resume(tp)
+                        except IllegalStateError:
+                            pass  # partition was revoked in a rebalance: nothing to resume
                         del paused[tp]
                 batch = await consumer.getmany(timeout_ms=500, max_records=50)
                 for tp, msgs in batch.items():
@@ -78,21 +82,29 @@ class ConsumerRunner:
                             break
                         due = self._not_before(m)
                         if due > time.time():  # back off this partition only; others keep flowing
-                            consumer.seek(tp, m.offset)
-                            consumer.pause(tp)
-                            paused[tp] = due
+                            try:
+                                consumer.seek(tp, m.offset)
+                                consumer.pause(tp)
+                                paused[tp] = due
+                            except IllegalStateError:
+                                pass  # lost the partition in a rebalance; new owner will redeliver
                             break
                         try:
                             await self._handle(m)
                         except Exception:  # noqa: BLE001 - e.g. Kafka produce failed: redo message
                             log.exception("failed handling %s[%s]@%s; will redo", m.topic,
                                           m.partition, m.offset)
-                            consumer.seek(tp, m.offset)
+                            try:
+                                consumer.seek(tp, m.offset)
+                            except IllegalStateError:
+                                pass
                             await asyncio.sleep(1)
                             break
                         try:
                             await consumer.commit({tp: m.offset + 1})  # after the DB tx committed
-                        except CommitFailedError:
+                        except (CommitFailedError, IllegalStateError):
+                            # rebalance took the partition: the new owner redelivers, and
+                            # processed_events makes the repeat harmless
                             log.warning("commit failed (rebalance); message will be redelivered")
                             break
         finally:
@@ -112,6 +124,10 @@ class ConsumerRunner:
         try:
             env = Envelope.model_validate_json(m.value)
             PAYLOADS[env.event_type].model_validate(env.payload)
+            home = EVENT_TOPICS[env.event_type].value
+            if not (origin == home or origin.endswith("." + home)):
+                # a forged / misrouted event: e.g. order.cancelled published to dispatch.events
+                raise ValueError(f"{env.event_type} does not belong on {origin}")
             if env.schema_version > SUPPORTED_SCHEMA_VERSION:
                 raise ValueError(f"unsupported schema_version {env.schema_version}")
         except (ValidationError, KeyError, ValueError) as e:

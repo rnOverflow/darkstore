@@ -11,6 +11,7 @@ orders = Table(
     Column("items", JSON, nullable=False),
     Column("status", String, nullable=False),
     Column("cancel_reason", String),
+    Column("rider_id", String),  # the rider dispatch assigned; rider.* events must match it
     Column("idempotency_key", String),
     Column("created_at", DateTime(timezone=True), server_default=func.now(), nullable=False),
     Column("updated_at", DateTime(timezone=True), server_default=func.now(), nullable=False),

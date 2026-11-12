@@ -12,6 +12,9 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field
 
 
+SUPPORTED_SCHEMA_VERSION = 1  # consumers DLQ anything newer (ADR-0002)
+
+
 def _now() -> datetime:
     return datetime.now(timezone.utc)
 

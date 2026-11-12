@@ -5,7 +5,8 @@ import pytest
 from pydantic import ValidationError
 
 from darkstore_common.envelope import Envelope
-from darkstore_common.topics import EVENT_TOPICS, Topic, dlq_topic, retry_topic
+from darkstore_common.events import make_event
+from darkstore_common.topics import EVENT_TOPICS, Topic, dlq_topic, parse_delay, retry_topic
 
 
 def test_envelope_defaults_generate_unique_ids_and_utc_time():
@@ -32,11 +33,34 @@ def test_roundtrip_json():
     assert Envelope.model_validate_json(e.model_dump_json()) == e
 
 
-def test_every_lifecycle_event_has_a_topic_and_retry_dlq_names():
+def test_every_lifecycle_event_has_a_topic():
     for ev in ["order.created", "inventory.reserved", "inventory.rejected", "picking.started",
                "picking.completed", "rider.assigned", "rider.picked_up",
                "order.out_for_delivery", "order.delivered", "order.cancelled"]:
         assert ev in EVENT_TOPICS
-    t = Topic.ORDER_EVENTS
-    assert retry_topic(t, "30s") == f"{t.value}.retry.30s"
-    assert dlq_topic(t) == f"{t.value}.dlq"
+    assert EVENT_TOPICS["order.cancelled"] is Topic.ORDER_EVENTS
+
+
+def test_retry_and_dlq_names_are_per_consumer_group():
+    origin = "darkstore.order.events"
+    assert retry_topic(origin, "inventory", "30s") == "darkstore.order.events.inventory.retry.30s"
+    assert dlq_topic(origin, "inventory") == "darkstore.order.events.inventory.dlq"
+
+
+def test_parse_delay():
+    assert parse_delay("5s") == 5
+    assert parse_delay("5m") == 300
+    assert parse_delay("0.5s") == 0.5
+    with pytest.raises(ValueError):
+        parse_delay("soon")
+
+
+def test_make_event_validates_payload():
+    e = make_event("order.created", "o1", customer_id="c1", store_id="s1",
+                   items=[{"sku": "milk", "qty": 2}])
+    assert e.payload["items"] == [{"sku": "milk", "qty": 2}]
+    with pytest.raises(ValidationError):
+        make_event("order.created", "o1", customer_id="c1", store_id="s1",
+                   items=[{"sku": "milk", "qty": 0}])
+    with pytest.raises(KeyError):
+        make_event("order.exploded", "o1")

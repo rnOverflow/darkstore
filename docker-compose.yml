@@ -23,12 +23,23 @@ services:
       - --pandaproxy-addr=internal://0.0.0.0:8082
       - --advertise-pandaproxy-addr=internal://redpanda:8082
       - --schema-registry-addr=0.0.0.0:8081
-    ports: ["19092:19092", "8081:8081", "9644:9644"]
+    ports: ["127.0.0.1:19092:19092", "127.0.0.1:8081:8081", "127.0.0.1:9644:9644"]
     mem_limit: 900m
     volumes: [redpanda-data:/var/lib/redpanda/data]
     healthcheck:
       <<: *hc
       test: ["CMD-SHELL", "rpk cluster health | grep -E 'Healthy:.+true' || exit 1"]
+
+  # dev-sized broker: reserve 256 KiB (default 4 MiB) per partition so retry/DLQ topics fit.
+  # (RP_BOOTSTRAP_* env vars are not honored by this image, so set it via the admin API.)
+  redpanda-config:
+    image: redpandadata/redpanda:v24.2.7
+    entrypoint: ["rpk", "-X", "admin.hosts=redpanda:9644", "cluster", "config", "set",
+                 "topic_memory_per_partition", "262144"]
+    restart: "no"
+    mem_limit: 128m
+    depends_on:
+      redpanda: {condition: service_healthy}
 
   console:
     image: redpandadata/console:v2.7.2
@@ -36,7 +47,7 @@ services:
       KAFKA_BROKERS: redpanda:9092
       KAFKA_SCHEMAREGISTRY_ENABLED: "true"
       KAFKA_SCHEMAREGISTRY_URLS: http://redpanda:8081
-    ports: ["8080:8080"]
+    ports: ["127.0.0.1:8080:8080"]
     mem_limit: 256m
     depends_on:
       redpanda: {condition: service_healthy}
@@ -45,9 +56,9 @@ services:
     image: postgres:16-alpine
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-darkstore}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-darkstore-local}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?run make env to generate .env}
       POSTGRES_DB: ${POSTGRES_DB:-darkstore}
-    ports: ["5432:5432"]
+    ports: ["127.0.0.1:5433:5432"]
     mem_limit: 256m
     volumes:
       - pg-data:/var/lib/postgresql/data
@@ -59,7 +70,7 @@ services:
   redis:
     image: redis:7-alpine
     command: ["redis-server", "--save", "", "--appendonly", "no", "--maxmemory", "128mb"]
-    ports: ["6379:6379"]
+    ports: ["127.0.0.1:6379:6379"]
     mem_limit: 192m
     healthcheck:
       <<: *hc
@@ -69,7 +80,7 @@ services:
     image: otel/opentelemetry-collector-contrib:0.108.0
     command: ["--config=/etc/otelcol/config.yaml"]
     volumes: ["./infra/otel/config.yaml:/etc/otelcol/config.yaml:ro"]
-    ports: ["4317:4317", "4318:4318", "13133:13133", "8889:8889"]
+    ports: ["127.0.0.1:4317:4317", "127.0.0.1:4318:4318", "127.0.0.1:13133:13133", "127.0.0.1:8889:8889"]
     mem_limit: 256m
     depends_on: [tempo, loki]
 
@@ -77,14 +88,14 @@ services:
     image: grafana/tempo:2.5.0
     command: ["-config.file=/etc/tempo.yaml"]
     volumes: ["./infra/tempo/tempo.yaml:/etc/tempo.yaml:ro", "tempo-data:/var/tempo"]
-    ports: ["3200:3200"]
+    ports: ["127.0.0.1:3200:3200"]
     mem_limit: 384m
 
   loki:
     image: grafana/loki:3.1.1
     command: ["-config.file=/etc/loki/config.yaml"]
     volumes: ["./infra/loki/config.yaml:/etc/loki/config.yaml:ro", "loki-data:/loki"]
-    ports: ["3100:3100"]
+    ports: ["127.0.0.1:3100:3100"]
     mem_limit: 384m
     healthcheck:
       <<: *hc
@@ -99,7 +110,7 @@ services:
     volumes:
       - ./infra/prometheus:/etc/prometheus:ro
       - prom-data:/prometheus
-    ports: ["9090:9090"]
+    ports: ["127.0.0.1:9090:9090"]
     mem_limit: 384m
     healthcheck:
       <<: *hc
@@ -108,14 +119,14 @@ services:
   grafana:
     image: grafana/grafana:11.2.0
     environment:
-      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-darkstore-local}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?run make env to generate .env}
       GF_AUTH_ANONYMOUS_ENABLED: "false"
       GF_USERS_DEFAULT_THEME: dark
     volumes:
       - ./infra/grafana/provisioning:/etc/grafana/provisioning:ro
       - ./infra/grafana/dashboards:/var/lib/grafana/dashboards:ro
       - grafana-data:/var/lib/grafana
-    ports: ["3000:3000"]
+    ports: ["127.0.0.1:3000:3000"]
     mem_limit: 384m
     depends_on: [prometheus, tempo, loki]
     healthcheck:
@@ -129,11 +140,56 @@ services:
       --backend-store-uri sqlite:////mlflow/mlflow.db
       --default-artifact-root /mlflow/artifacts
     volumes: [mlflow-data:/mlflow]
-    ports: ["5001:5000"]
+    ports: ["127.0.0.1:5001:5000"]
     mem_limit: 640m
     healthcheck:
       <<: *hc
       test: ["CMD-SHELL", "python -c \"import urllib.request;urllib.request.urlopen('http://localhost:5000/health')\""]
+
+  order:
+    build: .
+    image: darkstore-app:dev
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    pids_limit: 200
+    environment: &app-env
+      SERVICE: order
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-darkstore}:${POSTGRES_PASSWORD:?run make env to generate .env}@postgres:5432/${POSTGRES_DB:-darkstore}
+      KAFKA_BOOTSTRAP: redpanda:9092
+      HTTP_PORT: "8001"
+    ports: ["127.0.0.1:8001:8001"]
+    mem_limit: 192m
+    depends_on: &app-deps
+      redpanda: {condition: service_healthy}
+      redpanda-config: {condition: service_completed_successfully}
+      postgres: {condition: service_healthy}
+    healthcheck:
+      <<: *hc
+      test: ["CMD-SHELL", "python -c \"import urllib.request;urllib.request.urlopen('http://localhost:8001/healthz')\""]
+
+  inventory:
+    image: darkstore-app:dev
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    pids_limit: 200
+    environment: {<<: *app-env, SERVICE: inventory}
+    mem_limit: 192m
+    depends_on: {<<: *app-deps, order: {condition: service_healthy}}
+
+  picking:
+    image: darkstore-app:dev
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    pids_limit: 200
+    environment: {<<: *app-env, SERVICE: picking}
+    mem_limit: 192m
+    depends_on: {<<: *app-deps, order: {condition: service_healthy}}
 
 volumes:
   redpanda-data:

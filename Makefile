@@ -1,24 +1,33 @@
-.PHONY: up down test test-int health demo load urls clean
+# random local credentials, generated once and never committed (see .env.example)
+env:
+	@test -f .env || ./scripts/gen_env.sh
 
-up:
-	docker compose up -d --wait --wait-timeout 240
+.PHONY: env up down sync test test-int health demo load urls clean
+
+up: env
+	docker compose up -d --build --wait --wait-timeout 300
 	@./scripts/healthcheck.sh
 	@$(MAKE) --no-print-directory urls
 
-down:
+down: env
 	docker compose down
 
-clean:
+clean: env
 	docker compose down -v
 
-health:
+health: env
 	@./scripts/healthcheck.sh
 
-test:
-	uv run pytest -q
+# macOS marks uv's editable .pth files 'hidden', and Python then skips them -> ImportError
+sync:
+	uv sync
+	@chflags -R nohidden .venv 2>/dev/null || true
 
-test-int:
-	uv run pytest -q -m integration
+test: sync
+	uv run --no-sync pytest -q -m 'not integration'
+
+test-int: sync
+	uv run --no-sync pytest -q -m integration
 
 demo: up
 	@echo "demo: simulator arrives in P2 (see PLAN.md)"; $(MAKE) --no-print-directory urls
@@ -29,7 +38,7 @@ load:
 urls:
 	@echo ""
 	@echo "Redpanda Console  http://localhost:8080"
-	@echo "Grafana           http://localhost:3000  (admin / \$$GRAFANA_ADMIN_PASSWORD, default darkstore-local)"
+	@echo "Grafana           http://localhost:3000  (admin / GRAFANA_ADMIN_PASSWORD from .env)"
 	@echo "MLflow            http://localhost:5001"
 	@echo "Prometheus        http://localhost:9090"
 	@echo "Customer UI / Ops UI: added in P4"

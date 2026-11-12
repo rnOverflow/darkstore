@@ -50,4 +50,5 @@
 - T6.1 kill consumer · T6.2 kill gateway replica · T6.3 broker restart mid-flow · T6.4 Locust ramp + results table
 
 ### P7 Security, review, docs
+Backlog carried from P1 security review (not yet done): authn on all `/orders*` routes with ownership checks and server-assigned `customer_id`; rate limits + body size cap; hide `/docs`; Kafka SASL/TLS + per-service ACLs; per-service Postgres roles (all services share one superuser today); pin images by digest; outbox/processed_events purge; single-relay advisory lock; saga timeout for `assigned` state (with P2 dispatch).
 - T7.1 securitymaxxing audit/authn/api/secrets/deps/ship-check + fixes · T7.2 code-review pass · T7.3 makedoc README, diagram, ADR index, runbook, measured-numbers table

@@ -10,4 +10,5 @@ picks = Table(
     Column("status", String, nullable=False),  # started | completed | cancelled
     Column("started_at", DateTime(timezone=True), server_default=func.now(), nullable=False),
     Column("due_at", DateTime(timezone=True), nullable=False),
+    Column("completed_at", DateTime(timezone=True)),    # real time the pick finished: ops p95 pick time
 )

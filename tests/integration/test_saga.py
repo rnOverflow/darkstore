@@ -264,3 +264,13 @@ async def test_idempotency_key_is_scoped_to_the_customer(env):
         assert same.status_code == 200 and same.json() == {"order_id": a, "status": "created"}
         diff = await c.http.post("/orders", json=body("alice", qty=5), headers=h)
         assert diff.status_code == 409
+
+
+async def test_a_tracking_token_is_issued_only_when_the_order_is_created_not_on_replay(env):
+    async with stack(env, inventory=False, picking=False, token_secret="s" * 32) as c:
+        body = {"customer_id": "c1", "store_id": "s1", "items": [{"sku": "milk", "qty": 1}]}
+        h = {"Idempotency-Key": "k-token"}
+        first = await c.http.post("/orders", json=body, headers=h)
+        assert first.status_code == 201 and first.json()["tracking_token"]
+        replay = await c.http.post("/orders", json=body, headers=h)
+        assert replay.status_code == 200 and "tracking_token" not in replay.json()   # replay proves no ownership

@@ -2,9 +2,13 @@
 env:
 	@./scripts/gen_env.sh
 
-.PHONY: env up down sync train retrain test test-int health demo load urls clean
+.PHONY: env up down sync train retrain web e2e test test-int health demo load urls clean
 
-up: env
+# build the React apps once (nginx serves web/dist)
+web:
+	@test -f web/dist/index.html || { cd web && npm ci && npm run build; }
+
+up: env web
 	docker compose up -d --build --wait --wait-timeout 300
 	@./scripts/healthcheck.sh
 	@$(MAKE) --no-print-directory urls
@@ -37,6 +41,10 @@ train: sync
 retrain: sync
 	uv run --no-sync python -m darkstore_eta.retrain --mlflow-uri http://localhost:5001
 
+# Playwright against the running stack (make up first): customer journey + ops dashboard + screenshots
+e2e:
+	@cd web && OPS_TOKEN=$$(cd .. && uv run --no-sync python scripts/ops_token.py | sed 's/.*token=//') npx playwright test
+
 demo: up
 	@test -f models/eta/current/meta.json || $(MAKE) --no-print-directory train
 	docker compose --profile demo up -d simulator
@@ -53,4 +61,5 @@ urls:
 	@echo "Grafana           http://localhost:3000  (admin / GRAFANA_ADMIN_PASSWORD from .env)"
 	@echo "MLflow            http://localhost:5001"
 	@echo "Prometheus        http://localhost:9090"
-	@echo "Customer UI / Ops UI: added in P4"
+	@echo "Customer UI       http://localhost:8088"
+	@echo "Ops UI            $$(uv run --no-sync python scripts/ops_token.py 2>/dev/null || echo http://localhost:8088/ops/)"

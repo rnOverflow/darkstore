@@ -61,7 +61,7 @@ async def serve(settings: Settings, stop: asyncio.Event, ready: asyncio.Event | 
                     .with_for_update(skip_locked=True))).all()
                 for r in rows:
                     await s.execute(update(picks).where(picks.c.order_id == r.order_id)
-                                    .values(status="completed"))
+                                    .values(status="completed", completed_at=datetime.now(timezone.utc)))
                     took = (datetime.now(timezone.utc) - r.started_at).total_seconds()
                     await enqueue(s, META, out, make_event("picking.completed", r.order_id,
                                                            store_id=r.store_id, pick_seconds=took))

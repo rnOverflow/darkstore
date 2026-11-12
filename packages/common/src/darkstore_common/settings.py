@@ -27,6 +27,19 @@ class Settings(BaseSettings):
     rider_cooldown_seconds: float = 30.0
     match_interval: float = 0.2
     reconcile_grace_seconds: float = 30.0   # a Redis claim older than this with no DB backing is leaked
+    # realtime gateway / tokens
+    token_secret: str = ""                  # REQUIRED for tracking tokens (compose sets it from .env)
+    tracking_token_ttl: int = 6 * 3600
+    ws_auth_timeout: float = 5.0
+    ws_heartbeat: float = 15.0
+    ws_idle_timeout: float = 45.0
+    ws_ack_window: int = 500                # unacknowledged messages before the server pauses sending
+    ws_stall_timeout: float = 30.0          # paused this long without an ack -> client is cut off
+    ws_allowed_origins: tuple[str, ...] = ()   # empty = any origin; compose sets the real page origin
+    ws_max_conns_per_order: int = 5
+    ws_max_conns_ops: int = 50
+    ws_max_subscriptions: int = 20
+    ws_max_frame_bytes: int = 4096
     # ETA serving
     eta_model_enabled: bool = True
     eta_model_dir: str = "models/eta/current"

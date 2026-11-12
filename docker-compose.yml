@@ -7,6 +7,15 @@ x-healthy: &hc
   retries: 24
   start_period: 5s
 
+# Environment shared by every Python service. It deliberately does NOT contain TOKEN_SECRET: only
+# the services that sign or verify tokens (order, gateways, ops-api) receive it, so compromising the
+# simulator or the ETA service cannot mint tracking/ops tokens.
+x-app-env: &app-env
+  DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-darkstore}:${POSTGRES_PASSWORD:?run make env to generate .env}@postgres:5432/${POSTGRES_DB:-darkstore}
+  KAFKA_BOOTSTRAP: redpanda:9092
+  REDIS_URL: redis://:${REDIS_PASSWORD:?run make env to generate .env}@redis:6379/0
+  SIM_START_HOUR: ${SIM_START_HOUR:-18}        # one shared simulated clock for every service
+
 services:
   redpanda:
     image: redpandadata/redpanda:v24.2.7
@@ -157,13 +166,7 @@ services:
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]
     pids_limit: 200
-    environment: &app-env
-      SERVICE: order
-      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-darkstore}:${POSTGRES_PASSWORD:?run make env to generate .env}@postgres:5432/${POSTGRES_DB:-darkstore}
-      KAFKA_BOOTSTRAP: redpanda:9092
-      REDIS_URL: redis://:${REDIS_PASSWORD:?run make env to generate .env}@redis:6379/0
-      SIM_START_HOUR: ${SIM_START_HOUR:-18}        # one shared simulated clock for every service
-      HTTP_PORT: "8001"
+    environment: {<<: *app-env, SERVICE: order, HTTP_PORT: "8001", TOKEN_SECRET: "${TOKEN_SECRET:?run make env to generate .env}"}
     ports: ["127.0.0.1:8001:8001"]
     mem_limit: 192m
     depends_on: &app-deps
@@ -242,6 +245,66 @@ services:
     volumes: ["./models:/app/models:ro"]   # model bundles are pickles: mount only what you trust
     mem_limit: 512m
     depends_on: {<<: *app-deps, order: {condition: service_healthy}}
+
+  gateway-1:
+    image: darkstore-app:dev
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    pids_limit: 200
+    environment: {<<: *app-env, SERVICE: gateway, HTTP_PORT: "8002", TOKEN_SECRET: "${TOKEN_SECRET:?run make env to generate .env}", WS_ALLOWED_ORIGINS: '["http://localhost:8088"]'}
+    mem_limit: 192m
+    depends_on: {<<: *app-deps, order: {condition: service_healthy}}
+    healthcheck:
+      <<: *hc
+      test: ["CMD-SHELL", "python -c \"import urllib.request;urllib.request.urlopen('http://localhost:8002/healthz')\""]
+
+  gateway-2:
+    image: darkstore-app:dev
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    pids_limit: 200
+    environment: {<<: *app-env, SERVICE: gateway, HTTP_PORT: "8002", TOKEN_SECRET: "${TOKEN_SECRET:?run make env to generate .env}", WS_ALLOWED_ORIGINS: '["http://localhost:8088"]'}
+    mem_limit: 192m
+    depends_on: {<<: *app-deps, order: {condition: service_healthy}}
+    healthcheck:
+      <<: *hc
+      test: ["CMD-SHELL", "python -c \"import urllib.request;urllib.request.urlopen('http://localhost:8002/healthz')\""]
+
+  ops-api:
+    image: darkstore-app:dev
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    pids_limit: 200
+    environment: {<<: *app-env, SERVICE: ops_api, HTTP_PORT: "8003", TOKEN_SECRET: "${TOKEN_SECRET:?run make env to generate .env}"}
+    mem_limit: 192m
+    depends_on: {<<: *app-deps, order: {condition: service_healthy}}
+    healthcheck:
+      <<: *hc
+      test: ["CMD-SHELL", "python -c \"import urllib.request;urllib.request.urlopen('http://localhost:8003/healthz')\""]
+
+  web:
+    image: nginx:1.27-alpine
+    read_only: true
+    tmpfs: [/tmp, /var/cache/nginx, /var/run]
+    cap_drop: [ALL]
+    cap_add: [CHOWN, SETUID, SETGID, NET_BIND_SERVICE]
+    security_opt: ["no-new-privileges:true"]
+    volumes:
+      - ./infra/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./web/dist:/usr/share/nginx/html:ro
+    ports: ["127.0.0.1:8088:80"]
+    mem_limit: 64m
+    depends_on:
+      gateway-1: {condition: service_healthy}
+      gateway-2: {condition: service_healthy}
+      ops-api: {condition: service_healthy}
+      order: {condition: service_healthy}
 
 volumes:
   redpanda-data:

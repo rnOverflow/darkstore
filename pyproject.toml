@@ -3,7 +3,7 @@ name = "darkstore"
 version = "0.1.0"
 description = "Real-time quick-commerce order + ETA platform"
 requires-python = ">=3.12,<3.13"
-dependencies = ["darkstore-common", "darkstore-order", "darkstore-inventory", "darkstore-picking", "darkstore-dispatch", "darkstore-rider-sim", "darkstore-simulator", "darkstore-eta"]
+dependencies = ["darkstore-common", "darkstore-order", "darkstore-inventory", "darkstore-picking", "darkstore-dispatch", "darkstore-rider-sim", "darkstore-simulator", "darkstore-eta", "darkstore-gateway", "darkstore-ops-api"]
 
 [tool.uv.workspace]
 members = ["packages/*", "services/*"]
@@ -17,6 +17,8 @@ darkstore-dispatch = { workspace = true }
 darkstore-rider-sim = { workspace = true }
 darkstore-simulator = { workspace = true }
 darkstore-eta = { workspace = true }
+darkstore-gateway = { workspace = true }
+darkstore-ops-api = { workspace = true }
 
 [dependency-groups]
 dev = [

@@ -1,0 +1,40 @@
+.layout { display: grid; grid-template-columns: 340px 1fr; height: 100%; }
+.panel {
+  background: var(--panel); border-right: 1px solid var(--line);
+  padding: 18px; overflow-y: auto; display: flex; flex-direction: column; gap: 10px;
+}
+.map-wrap { position: relative; min-height: 0; }
+.row { display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; }
+.row code { font-size: 12px; word-break: break-all; }
+.conn { margin-left: auto; font-size: 12px; padding: 2px 8px; border-radius: 99px; border: 1px solid var(--line); }
+.conn-live { color: var(--ok); border-color: var(--ok); }
+.conn-reconnecting, .conn-connecting { color: var(--warn); border-color: var(--warn); }
+.conn-expired { color: var(--bad); border-color: var(--bad); }
+.banner-failed {
+  background: var(--bad); color: #fff; border-radius: 8px; padding: 10px 12px;
+  font-weight: 600; margin: 0; text-transform: capitalize;
+}
+.eta { border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; }
+.eta-text { font-size: 22px; font-weight: 700; }
+.eta-meta { display: flex; gap: 8px; align-items: baseline; color: var(--muted); }
+.eta-source { font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; }
+.stepper { list-style: none; margin: 8px 0 0; padding: 0; }
+.step { display: flex; align-items: center; gap: 12px; padding: 7px 0; position: relative; color: var(--muted); }
+.step::before {
+  content: ''; position: absolute; left: 8px; top: -50%; width: 2px; height: 100%; background: var(--line);
+}
+.step:first-child::before { display: none; }
+.step-dot {
+  width: 18px; height: 18px; border-radius: 50%; background: var(--panel);
+  border: 2px solid var(--line); z-index: 1; flex: none;
+}
+.step-done { color: var(--ink); }
+.step-done .step-dot { background: var(--ok); border-color: var(--ok); }
+.step-done::before { background: var(--ok); }
+.step-active { color: var(--ink); font-weight: 700; }
+.step-active .step-dot { border-color: var(--accent); background: var(--accent); box-shadow: 0 0 0 4px rgba(28, 126, 214, 0.25); }
+.stepper-failed .step-todo { opacity: 0.45; }
+@media (max-width: 720px) {
+  .layout { grid-template-columns: 1fr; grid-template-rows: auto 55vh; height: auto; min-height: 100%; }
+  .panel { border-right: 0; border-bottom: 1px solid var(--line); }
+}

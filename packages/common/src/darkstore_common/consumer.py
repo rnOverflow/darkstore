@@ -47,10 +47,11 @@ class ConsumerRunner:
     def __init__(self, *, bootstrap: str, group: str, topics: list[str],
                  sessionmaker: async_sessionmaker[AsyncSession], meta: ServiceMeta,
                  handler: Handler, producer: AIOKafkaProducer,
-                 retry_delays: tuple[str, ...] = ("5s", "30s", "5m")):
+                 retry_delays: tuple[str, ...] = ("5s", "30s", "5m"), dedupe: bool = True):
         self.bootstrap, self.group, self.topics = bootstrap, group, topics
         self.sm, self.meta, self.handler, self.producer = sessionmaker, meta, handler, producer
         self.delays = retry_delays
+        self.dedupe = dedupe       # False: the handler is idempotent itself and needs no DB (gateway)
         self.max_delay = max(parse_delay(d) for d in retry_delays) if retry_delays else 0.0
         # retry topic name -> (origin topic, attempts already made)
         self._retry_info = {retry_topic(t, group, d): (t, i + 1)
@@ -143,6 +144,9 @@ class ConsumerRunner:
             await self._fail(m, origin, attempt, e)
 
     async def _process(self, env: Envelope) -> None:
+        if not self.dedupe:
+            await self.handler(None, env)
+            return
         pe = self.meta.processed
         async with self.sm.begin() as s:
             r = await s.execute(pg_insert(pe).values(consumer=self.group, event_id=env.event_id)

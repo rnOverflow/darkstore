@@ -19,7 +19,7 @@ Extra = Callable[[async_sessionmaker[AsyncSession], asyncio.Event], Awaitable[No
 async def run_service(settings: Settings, *, meta: ServiceMeta, group: str,
                       consumes: Sequence[Topic], handler: Handler | None, stop: asyncio.Event,
                       produces: Sequence[Topic] = (), extra: Sequence[Extra] = (),
-                      ready: asyncio.Event | None = None) -> None:
+                      ready: asyncio.Event | None = None, dedupe: bool = True) -> None:
     engine = make_engine(settings.database_url)
     sm = make_sessionmaker(engine)
     await init_schema(engine, meta)
@@ -27,7 +27,7 @@ async def run_service(settings: Settings, *, meta: ServiceMeta, group: str,
     runner = ConsumerRunner(
         bootstrap=settings.kafka_bootstrap, group=group,
         topics=[settings.topic(t) for t in consumes], sessionmaker=sm, meta=meta,
-        handler=handler, producer=producer, retry_delays=settings.retry_delays)
+        handler=handler, producer=producer, retry_delays=settings.retry_delays, dedupe=dedupe)
     names = [settings.topic(t) for t in {*consumes, *produces}] + runner.owned_topics()
     await ensure_topics(settings.kafka_bootstrap, names, settings.topic_partitions)
     relay = OutboxRelay(sm, meta, producer)

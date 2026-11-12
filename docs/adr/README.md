@@ -3,3 +3,4 @@
 - [0002 Envelope and schema versioning](0002-envelope-and-schema-versioning.md)
 - [0003 Idempotency, ordering, saga](0003-idempotency-ordering-saga.md)
 - [0004 Rider matching, atomic claim, dispatch ownership](0004-rider-matching-and-dispatch.md)
+- [0005 Realtime tracking gateway](0005-realtime-gateway.md)

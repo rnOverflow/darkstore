@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from darkstore_common.events import OrderCreated as CreateOrder
 from darkstore_common.settings import Settings
+from darkstore_common.tokens import sign
 
 from . import logic
 from .models import orders
@@ -32,7 +33,11 @@ def create_app(sm: async_sessionmaker[AsyncSession], st: Settings) -> FastAPI:
             raise HTTPException(409, str(e))
         if not created:
             response.status_code = 200
-        return {"order_id": order_id, "status": status}
+        out = {"order_id": order_id, "status": status}
+        if st.token_secret and created:  # NEVER on a replay: a replay proves nothing about ownership
+            out["tracking_token"] = sign(st.token_secret, role="customer", order_id=order_id,
+                                         ttl_s=st.tracking_token_ttl)
+        return out
 
     @app.get("/orders/{order_id}")
     async def get(order_id: str):

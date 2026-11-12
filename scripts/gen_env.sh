@@ -10,3 +10,4 @@ add POSTGRES_DB darkstore
 add POSTGRES_PASSWORD "$(openssl rand -hex 16)"
 add GRAFANA_ADMIN_PASSWORD "$(openssl rand -hex 16)"
 add REDIS_PASSWORD "$(openssl rand -hex 16)"
+add TOKEN_SECRET "$(openssl rand -hex 32)"

@@ -23,5 +23,7 @@ check "loki"                     curl -sf http://localhost:3100/ready
 check "prometheus"               curl -sf http://localhost:9090/-/ready
 check "grafana"                  curl -sf http://localhost:3000/api/health
 check "order-service"             curl -sf http://localhost:8001/healthz
+check "web (nginx)"                curl -sf http://localhost:8088/
+check "ops-api via nginx"          curl -sf http://localhost:8088/api/city
 check "mlflow"                   curl -sf http://localhost:5001/health
 exit $fail

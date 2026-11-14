@@ -7,10 +7,10 @@ Nothing is rounded in our favour; failures and re-runs are listed as they happen
 
 | Suite | Command | Result (real output line) |
 |---|---|---|
-| Unit | `make test` | `140 passed, 84 deselected, 1 warning in 20.85s` |
+| Unit | `make test` | `141 passed, 88 deselected, 1 warning in 14.84s` |
 | SLO alert rules | `make test-alerts` (promtool) | `SUCCESS: 14 rules found` / `SUCCESS` |
-| Integration (real Redpanda, Postgres, Redis via testcontainers) | `make test-int` | `84 passed, 140 deselected, 3 warnings in 304.26s` (see note 1) |
-| Playwright e2e | `make e2e` | `6 passed (41.4s)` (see note 2) |
+| Integration (real Redpanda, Postgres, Redis via testcontainers) | `make test-int` | `88 passed, 141 deselected, 3 warnings in 535.36s (0:08:55)` (see note 1) |
+| Playwright e2e | `make e2e` | `6 passed (1.2m)` (see note 2) |
 
 1. **Integration.** Run with the stack stopped (`docker compose down`): an earlier attempt with the full stack up produced 63 fixture timeouts because the 4 GB Docker VM cannot host both, and was discarded. An earlier full run had one intermittent failure, `test_gate_500_concurrent_orders_zero_double_assigned_riders` (one order stuck behind the 30 s / 5 min retry tier under the compressed test timings). The test now sets a longer retry ladder (1s/2s/5s/10s/20s) and the whole suite passed in the run above; I have run it to completion once with that change, not many times, so I would still call it "passed", not "proven not flaky".
 2. **e2e.** An earlier run had one failure right after a stack restart (the ETA service was replaying backlog). The run above is on a settled, freshly rebuilt stack: all six passed.

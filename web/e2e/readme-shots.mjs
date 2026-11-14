@@ -20,21 +20,13 @@ const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
 await page.goto(base);
 await page.getByTestId('place-order').click();
 await expect(page.getByTestId('connection-state')).toHaveText(/live/i, { timeout: 30_000 });
-// The store/destination markers arrive only in the snapshot sent when the socket subscribes. If the gateway had not
-// consumed order.created yet, that snapshot has no store/dest and the map stays on the whole-city view until the
-// page reconnects. A reload resumes the same order with a fresh snapshot, so reload once if the markers are missing.
-const markersShown = await page.getByTestId('marker-store').waitFor({ timeout: 2500 }).then(() => true, () => false);
-if (!markersShown) {
-  console.log('store marker missing after first snapshot; reloading to resume the same order');
-  await page.reload();
-  await expect(page.getByTestId('connection-state')).toHaveText(/live/i, { timeout: 30_000 });
-  await expect(page.getByTestId('marker-store')).toBeVisible({ timeout: 10_000 });
-}
+await expect(page.getByTestId('marker-store')).toBeVisible({ timeout: 10_000 });   // the map has fitted to the order
 await expect(page.getByTestId('step-picking')).toHaveAttribute('data-state', 'active', { timeout: 60_000 });
 await page.waitForTimeout(1500);   // let the map tiles load
 await shot(page, 'customer-1-picking');
 await expect(page.getByTestId('step-out_for_delivery')).toHaveAttribute('data-state', 'active', { timeout: 240_000 });
 await expect(page.getByTestId('marker-rider')).toBeVisible();
+await expect(page.getByTestId('eta-range')).toContainText(/\d|<1/, { timeout: 20_000 });   // not "Estimating..."
 await page.waitForTimeout(1500);
 await shot(page, 'customer-2-out-for-delivery');
 await expect(page.getByTestId('order-status')).toHaveText(/delivered/i, { timeout: 240_000 });

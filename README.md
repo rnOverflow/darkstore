@@ -20,7 +20,7 @@ make e2e     # Playwright          make chaos SCENARIO=kill-picking   make load
 The demo simulator runs on a 30x clock with 1 order per simulated minute at base demand (`SIM_ORDERS_PER_MINUTE`, so 0.5/s before the rush multipliers), starting at 16:00 (`SIM_START_HOUR`). The simulated clock starts when the stack first boots (its epoch is kept in Redis), so run `make demo` right after `make up`; starting it much later begins later in the simulated day. Two runs measured on this machine:
 
 - **Lunch peak** (sim hour ~13, about 1.1 orders/s target): 551 orders delivered in 15 minutes, order-to-delivered p50 103 s and p95 200 s, rider backlog 0-1. City-wide destinations make trips longer than in the load test, which is why these are slower than the load-ramp table.
-- **Evening rush** (19:00-22:00 simulated, 3.0x, about 1.5 orders/s target; it starts 6 minutes after the simulator and lasts about 6): this is over what the 120-rider fleet can deliver. About 0.7 orders/s were delivered through the rush (262 in 6.1 minutes), so the orders waiting for a rider grew to about 250 and drained to 0 about 6 minutes after demand fell. The order pipeline itself stayed healthy: consumer lag was at most 4 in samples taken every 30 s, and the simulator logged 0 failed placements. That queue is what the `FleetStarved` alert and the ops late-orders table exist to show; lower `SIM_ORDERS_PER_MINUTE` to stay under capacity.
+- **Evening rush** (19:00-22:00 simulated, 3.0x, about 1.5 orders/s target; it starts 6 minutes after the simulator and lasts about 6): this is over what the 120-rider fleet can deliver. About 0.7 orders/s were delivered through the rush (262 in 6.1 minutes), so the orders waiting for a rider grew to about 250 and drained to 0 about 6 minutes after demand fell. The order pipeline itself stayed healthy: consumer lag was at most 4 in samples taken every 30 s, and the simulator logged 0 failed placements. That was a fresh start with nothing else running; in a later run with the ops dashboard open in a browser and the Playwright tests running through the same rush, consumer lag reached about 860 and the simulator logged 156 failed placements (518 placed) before things recovered once demand fell, so on a 4 GB Docker VM the evening rush leaves little headroom. The rider queue is what the `FleetStarved` alert and the ops late-orders table exist to show; lower `SIM_ORDERS_PER_MINUTE` to stay under capacity.
 
 The earlier defaults (3 per simulated minute, starting at 18:00) asked for 1.5 orders/s at base and 4.5/s in the evening peak, so orders queued for many minutes (656 waiting after 33 minutes).
 
@@ -36,7 +36,7 @@ Screenshots from the running demo on this laptop (`make up && make demo`). They 
 |---|---|---|
 | ![Order being picked at the dark store](docs/screenshots/customer-1-picking.jpg) | ![Rider on the way, ETA shown](docs/screenshots/customer-2-out-for-delivery.jpg) | ![Order delivered, all steps done](docs/screenshots/customer-3-delivered.jpg) |
 
-**Ops dashboard** (token URL from `make urls`): every rider on the map (green idle, blue assigned, orange cooldown) over the supply-vs-demand H3 cells, the dark stores (S), the order funnel, P95 pick time and the late-orders table. This capture was taken after the evening rush had drained, so most of the fleet is idle.
+**Ops dashboard** (token URL from `make urls`): every rider on the map (green idle, blue assigned, orange cooldown) over the supply-vs-demand H3 cells, the dark stores (S), the order funnel, P95 pick time and the late-orders table. This capture is from a fresh demo run in the early evening (before the rush), with about half the fleet out on deliveries.
 
 ![Ops dashboard with the demo running](docs/screenshots/ops-live.jpg)
 
@@ -83,10 +83,10 @@ Evidence is collected in [docs/verification.md](docs/verification.md) (test outp
 
 | Check | Result |
 |---|---|
-| Unit tests (`make test`) | 140 passed |
-| Integration tests (`make test-int`, real Redpanda/Postgres/Redis) | 84 passed (stack stopped while they run). Details in docs/verification.md |
+| Unit tests (`make test`) | 141 passed |
+| Integration tests (`make test-int`, real Redpanda/Postgres/Redis) | 88 passed (stack stopped while they run). Details in docs/verification.md |
 | Alert rules (`make test-alerts`, promtool) | 14 rules, SUCCESS |
-| Playwright e2e: order to delivered in the browser | 6 passed (41 s) on the final stack |
+| Playwright e2e: order to delivered in the browser, store/customer markers, ops map worker | 6 passed (1.2 min) on the final stack |
 | Chaos: six fault scenarios | **6 of 6 pass** (table below) |
 
 ## Numbers I measured

@@ -1,0 +1,691 @@
+{
+  "stages": [
+    {
+      "stage": "0.5/s",
+      "order_users": 1,
+      "start": 1794625494.173839,
+      "end": 1794625554.4560199,
+      "seconds": 60.3,
+      "client": {
+        "orders_created": 61,
+        "create_failures": 0,
+        "created_per_s": 1.01,
+        "create_ms": {
+          "p50": 36.5,
+          "p95": 152.8,
+          "p99": 180.0
+        },
+        "ws_snapshot_ms": {
+          "p50": 27.3,
+          "p95": 109.5,
+          "n": 30
+        },
+        "tracked_to_delivered_s": {
+          "p50": 29.5,
+          "p95": 40.7,
+          "n": 18
+        },
+        "ws_failures": 0,
+        "ws_reconnects": 0
+      }
+    },
+    {
+      "stage": "1/s",
+      "order_users": 2,
+      "start": 1794625554.4560199,
+      "end": 1794625644.5005062,
+      "seconds": 90.0,
+      "client": {
+        "orders_created": 128,
+        "create_failures": 0,
+        "created_per_s": 1.42,
+        "create_ms": {
+          "p50": 24.6,
+          "p95": 139.3,
+          "p99": 332.0
+        },
+        "ws_snapshot_ms": {
+          "p50": 23.0,
+          "p95": 173.1,
+          "n": 39
+        },
+        "tracked_to_delivered_s": {
+          "p50": 24.1,
+          "p95": 43.6,
+          "n": 40
+        },
+        "ws_failures": 0,
+        "ws_reconnects": 0
+      }
+    },
+    {
+      "stage": "1.5/s",
+      "order_users": 3,
+      "start": 1794625644.5005062,
+      "end": 1794625734.659128,
+      "seconds": 90.2,
+      "client": {
+        "orders_created": 169,
+        "create_failures": 0,
+        "created_per_s": 1.87,
+        "create_ms": {
+          "p50": 36.3,
+          "p95": 225.5,
+          "p99": 471.4
+        },
+        "ws_snapshot_ms": {
+          "p50": 22.7,
+          "p95": 136.9,
+          "n": 39
+        },
+        "tracked_to_delivered_s": {
+          "p50": 27.5,
+          "p95": 45.5,
+          "n": 38
+        },
+        "ws_failures": 0,
+        "ws_reconnects": 0
+      }
+    },
+    {
+      "stage": "2/s",
+      "order_users": 4,
+      "start": 1794625734.659128,
+      "end": 1794625824.830314,
+      "seconds": 90.2,
+      "client": {
+        "orders_created": 206,
+        "create_failures": 0,
+        "created_per_s": 2.28,
+        "create_ms": {
+          "p50": 35.4,
+          "p95": 275.8,
+          "p99": 480.3
+        },
+        "ws_snapshot_ms": {
+          "p50": 26.5,
+          "p95": 140.1,
+          "n": 33
+        },
+        "tracked_to_delivered_s": {
+          "p50": 31.0,
+          "p95": 41.3,
+          "n": 33
+        },
+        "ws_failures": 0,
+        "ws_reconnects": 0
+      }
+    },
+    {
+      "stage": "3/s",
+      "order_users": 6,
+      "start": 1794625824.830314,
+      "end": 1794625914.209352,
+      "seconds": 89.4,
+      "client": {
+        "orders_created": 285,
+        "create_failures": 0,
+        "created_per_s": 3.19,
+        "create_ms": {
+          "p50": 61.7,
+          "p95": 336.4,
+          "p99": 753.7
+        },
+        "ws_snapshot_ms": {
+          "p50": 29.8,
+          "p95": 151.4,
+          "n": 32
+        },
+        "tracked_to_delivered_s": {
+          "p50": 33.3,
+          "p95": 45.5,
+          "n": 32
+        },
+        "ws_failures": 0,
+        "ws_reconnects": 0
+      }
+    },
+    {
+      "stage": "4/s",
+      "order_users": 8,
+      "start": 1794625914.209352,
+      "end": 1794626004.7964642,
+      "seconds": 90.6,
+      "client": {
+        "orders_created": 370,
+        "create_failures": 0,
+        "created_per_s": 4.08,
+        "create_ms": {
+          "p50": 78.0,
+          "p95": 365.2,
+          "p99": 514.6
+        },
+        "ws_snapshot_ms": {
+          "p50": 26.8,
+          "p95": 142.6,
+          "n": 23
+        },
+        "tracked_to_delivered_s": {
+          "p50": 39.2,
+          "p95": 62.0,
+          "n": 23
+        },
+        "ws_failures": 0,
+        "ws_reconnects": 0
+      }
+    }
+  ],
+  "cpu_at_stage_end": [
+    {
+      "stage": "0.5/s",
+      "containers": {
+        "web": [
+          "0.66%",
+          "6.418MiB"
+        ],
+        "inventory": [
+          "16.94%",
+          "56.97MiB"
+        ],
+        "gateway-1": [
+          "17.83%",
+          "84.12MiB"
+        ],
+        "eta": [
+          "48.02%",
+          "154.7MiB"
+        ],
+        "picking": [
+          "9.67%",
+          "80.98MiB"
+        ],
+        "ops-api": [
+          "0.52%",
+          "48.76MiB"
+        ],
+        "rider-sim": [
+          "37.26%",
+          "64.84MiB"
+        ],
+        "dispatch": [
+          "32.63%",
+          "71.12MiB"
+        ],
+        "gateway-2": [
+          "20.31%",
+          "49.45MiB"
+        ],
+        "order": [
+          "34.18%",
+          "80.11MiB"
+        ],
+        "grafana": [
+          "2.30%",
+          "86.57MiB"
+        ],
+        "otel-collector": [
+          "4.89%",
+          "111MiB"
+        ],
+        "console": [
+          "0.00%",
+          "32.98MiB"
+        ],
+        "postgres": [
+          "33.11%",
+          "102.9MiB"
+        ],
+        "redis": [
+          "7.94%",
+          "23.48MiB"
+        ],
+        "prometheus": [
+          "0.93%",
+          "113.9MiB"
+        ],
+        "mlflow": [
+          "6.41%",
+          "830.8MiB"
+        ],
+        "loki": [
+          "1.33%",
+          "96.25MiB"
+        ],
+        "redpanda": [
+          "27.12%",
+          "273.3MiB"
+        ],
+        "tempo": [
+          "15.61%",
+          "365.5MiB"
+        ]
+      }
+    },
+    {
+      "stage": "1/s",
+      "containers": {
+        "web": [
+          "1.32%",
+          "6.422MiB"
+        ],
+        "inventory": [
+          "10.72%",
+          "57.08MiB"
+        ],
+        "gateway-1": [
+          "15.49%",
+          "84.63MiB"
+        ],
+        "eta": [
+          "14.26%",
+          "154.3MiB"
+        ],
+        "picking": [
+          "8.64%",
+          "81.18MiB"
+        ],
+        "ops-api": [
+          "0.66%",
+          "48.95MiB"
+        ],
+        "rider-sim": [
+          "28.20%",
+          "64.15MiB"
+        ],
+        "dispatch": [
+          "19.40%",
+          "71.51MiB"
+        ],
+        "gateway-2": [
+          "20.89%",
+          "84.12MiB"
+        ],
+        "order": [
+          "19.96%",
+          "79.94MiB"
+        ],
+        "grafana": [
+          "22.82%",
+          "90.31MiB"
+        ],
+        "otel-collector": [
+          "6.38%",
+          "107.7MiB"
+        ],
+        "console": [
+          "0.00%",
+          "33.94MiB"
+        ],
+        "postgres": [
+          "24.88%",
+          "114.7MiB"
+        ],
+        "redis": [
+          "12.45%",
+          "20.97MiB"
+        ],
+        "prometheus": [
+          "6.24%",
+          "117.8MiB"
+        ],
+        "mlflow": [
+          "13.76%",
+          "813.9MiB"
+        ],
+        "loki": [
+          "8.55%",
+          "97.66MiB"
+        ],
+        "redpanda": [
+          "20.96%",
+          "265.7MiB"
+        ],
+        "tempo": [
+          "10.64%",
+          "363.3MiB"
+        ]
+      }
+    },
+    {
+      "stage": "1.5/s",
+      "containers": {
+        "web": [
+          "0.78%",
+          "6.453MiB"
+        ],
+        "inventory": [
+          "18.54%",
+          "57.3MiB"
+        ],
+        "gateway-1": [
+          "18.97%",
+          "85.04MiB"
+        ],
+        "eta": [
+          "61.94%",
+          "154.8MiB"
+        ],
+        "picking": [
+          "23.99%",
+          "81.56MiB"
+        ],
+        "ops-api": [
+          "2.06%",
+          "49.09MiB"
+        ],
+        "rider-sim": [
+          "33.03%",
+          "64.52MiB"
+        ],
+        "dispatch": [
+          "38.84%",
+          "72.04MiB"
+        ],
+        "gateway-2": [
+          "30.01%",
+          "84.74MiB"
+        ],
+        "order": [
+          "33.42%",
+          "81MiB"
+        ],
+        "grafana": [
+          "0.72%",
+          "90.56MiB"
+        ],
+        "otel-collector": [
+          "6.31%",
+          "108MiB"
+        ],
+        "console": [
+          "0.00%",
+          "33.94MiB"
+        ],
+        "postgres": [
+          "31.19%",
+          "118.7MiB"
+        ],
+        "redis": [
+          "9.33%",
+          "22.68MiB"
+        ],
+        "prometheus": [
+          "0.06%",
+          "119.4MiB"
+        ],
+        "mlflow": [
+          "32.73%",
+          "813.9MiB"
+        ],
+        "loki": [
+          "7.55%",
+          "97.53MiB"
+        ],
+        "redpanda": [
+          "32.83%",
+          "267.1MiB"
+        ],
+        "tempo": [
+          "9.52%",
+          "225.3MiB"
+        ]
+      }
+    },
+    {
+      "stage": "2/s",
+      "containers": {
+        "web": [
+          "1.30%",
+          "6.438MiB"
+        ],
+        "inventory": [
+          "23.68%",
+          "57.35MiB"
+        ],
+        "gateway-1": [
+          "23.72%",
+          "85.48MiB"
+        ],
+        "eta": [
+          "58.30%",
+          "155.5MiB"
+        ],
+        "picking": [
+          "26.93%",
+          "81.86MiB"
+        ],
+        "ops-api": [
+          "14.03%",
+          "48.84MiB"
+        ],
+        "rider-sim": [
+          "32.08%",
+          "63.8MiB"
+        ],
+        "dispatch": [
+          "39.34%",
+          "72.23MiB"
+        ],
+        "gateway-2": [
+          "26.01%",
+          "84.9MiB"
+        ],
+        "order": [
+          "35.53%",
+          "81.96MiB"
+        ],
+        "grafana": [
+          "6.07%",
+          "91.23MiB"
+        ],
+        "otel-collector": [
+          "11.43%",
+          "108.7MiB"
+        ],
+        "console": [
+          "0.00%",
+          "34.15MiB"
+        ],
+        "postgres": [
+          "42.86%",
+          "122MiB"
+        ],
+        "redis": [
+          "10.56%",
+          "24.78MiB"
+        ],
+        "prometheus": [
+          "0.02%",
+          "119.5MiB"
+        ],
+        "mlflow": [
+          "21.14%",
+          "813.7MiB"
+        ],
+        "loki": [
+          "13.24%",
+          "97.68MiB"
+        ],
+        "redpanda": [
+          "30.08%",
+          "270.1MiB"
+        ],
+        "tempo": [
+          "13.38%",
+          "226.4MiB"
+        ]
+      }
+    },
+    {
+      "stage": "3/s",
+      "containers": {
+        "web": [
+          "0.58%",
+          "6.473MiB"
+        ],
+        "inventory": [
+          "15.23%",
+          "57.69MiB"
+        ],
+        "gateway-1": [
+          "27.43%",
+          "85.92MiB"
+        ],
+        "eta": [
+          "54.53%",
+          "156.4MiB"
+        ],
+        "picking": [
+          "25.26%",
+          "82.16MiB"
+        ],
+        "ops-api": [
+          "64.40%",
+          "48.44MiB"
+        ],
+        "rider-sim": [
+          "40.77%",
+          "63.8MiB"
+        ],
+        "dispatch": [
+          "48.57%",
+          "72.88MiB"
+        ],
+        "gateway-2": [
+          "32.79%",
+          "85.16MiB"
+        ],
+        "order": [
+          "28.96%",
+          "82.82MiB"
+        ],
+        "grafana": [
+          "1.12%",
+          "91.97MiB"
+        ],
+        "otel-collector": [
+          "5.27%",
+          "110.2MiB"
+        ],
+        "console": [
+          "0.00%",
+          "35.39MiB"
+        ],
+        "postgres": [
+          "33.22%",
+          "129.6MiB"
+        ],
+        "redis": [
+          "13.17%",
+          "27.57MiB"
+        ],
+        "prometheus": [
+          "0.14%",
+          "116.4MiB"
+        ],
+        "mlflow": [
+          "8.34%",
+          "812.5MiB"
+        ],
+        "loki": [
+          "3.27%",
+          "101.8MiB"
+        ],
+        "redpanda": [
+          "55.75%",
+          "274.5MiB"
+        ],
+        "tempo": [
+          "18.26%",
+          "209.5MiB"
+        ]
+      }
+    },
+    {
+      "stage": "4/s",
+      "containers": {
+        "web": [
+          "0.43%",
+          "6.449MiB"
+        ],
+        "inventory": [
+          "21.19%",
+          "57.68MiB"
+        ],
+        "gateway-1": [
+          "83.46%",
+          "88.78MiB"
+        ],
+        "eta": [
+          "37.32%",
+          "156.3MiB"
+        ],
+        "picking": [
+          "26.21%",
+          "82.25MiB"
+        ],
+        "ops-api": [
+          "2.48%",
+          "50.82MiB"
+        ],
+        "rider-sim": [
+          "35.01%",
+          "61.02MiB"
+        ],
+        "dispatch": [
+          "55.48%",
+          "73.54MiB"
+        ],
+        "gateway-2": [
+          "60.20%",
+          "96.38MiB"
+        ],
+        "order": [
+          "80.97%",
+          "95.32MiB"
+        ],
+        "grafana": [
+          "17.92%",
+          "100.5MiB"
+        ],
+        "otel-collector": [
+          "8.56%",
+          "113.4MiB"
+        ],
+        "console": [
+          "0.00%",
+          "36.71MiB"
+        ],
+        "postgres": [
+          "49.29%",
+          "135.5MiB"
+        ],
+        "redis": [
+          "11.23%",
+          "30.92MiB"
+        ],
+        "prometheus": [
+          "1.85%",
+          "118.9MiB"
+        ],
+        "mlflow": [
+          "9.69%",
+          "809.6MiB"
+        ],
+        "loki": [
+          "7.19%",
+          "106.2MiB"
+        ],
+        "redpanda": [
+          "37.46%",
+          "279.5MiB"
+        ],
+        "tempo": [
+          "10.17%",
+          "204.3MiB"
+        ]
+      }
+    }
+  ],
+  "trackers": 12
+}

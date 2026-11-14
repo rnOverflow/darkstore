@@ -53,3 +53,25 @@ def test_city_has_six_stores_with_valid_cells_and_nearest_lookup():
     assert len(STORES) == 6
     for sid, (lat, lng) in STORES.items():
         assert nearest_store(lat, lng) == sid
+
+
+def test_return_to_base_moves_far_idle_riders_toward_home_and_leaves_nearby_ones():
+    from darkstore_common.geo import return_to_base
+    home = STORES["store-3"]                       # Whitefield, ~12 km from the western stores
+    far = (home[0], home[1] - 0.10)                # ~11 km west of home
+    lat, lng = return_to_base(*far, *home, km=2.0)
+    assert haversine_km(lat, lng, *home) < haversine_km(*far, *home)
+    assert math.isclose(haversine_km(*far, lat, lng), 2.0, rel_tol=0.01)   # moved exactly `km`
+    near = (home[0] + 0.002, home[1] - 0.002)      # inside the base radius: stays put
+    assert return_to_base(*near, *home, km=2.0) == near
+    assert return_to_base(*far, *home, km=1e6) == home   # never overshoots
+
+
+def test_deliverable_rejects_destinations_far_from_a_real_store():
+    from darkstore_common.city import MAX_DELIVERY_KM, deliverable
+    lat, lng = STORES["store-0"]
+    assert deliverable("store-0", lat + 0.02, lng)            # ~2 km: fine
+    assert not deliverable("store-0", 89.0, 0.0)              # the attack in the review: rider held for hours
+    far = lat + (MAX_DELIVERY_KM + 1) / 111.195
+    assert not deliverable("store-0", far, lng)
+    assert deliverable("not-a-store", 0.0, 0.0)               # unknown stores are rejected downstream by inventory

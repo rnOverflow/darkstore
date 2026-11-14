@@ -1,0 +1,7 @@
+[08:19:15] run d98abf82: kill-order, 40 orders at 0.25/s, fault at +40.0s
+[08:19:21] baseline: stock+reserved=120000 dlq_messages=0
+[08:20:01] FAULT kill order
+[08:20:19] FAULT over after 18s: order is back
+[08:22:03] all requests settled: 40/40 accepted, 60 failed attempts, 0 gave up
+[08:22:59] {"scenario": "kill-order", "run_id": "d98abf82", "orders": 40, "rate_per_s": 0.25, "fault": {"kind": "kill", "target": "order", "seconds": 17.9}, "accepted": 40, "final_statuses": {"delivered": 40}, "failed_attempts": 60, "create_latency_ms": {"p50": 36.7, "p95": 236.6, "max": 285.7}, "ws_clients": 0, "ws_reconnects": 0, "stock_before": 120000, "stock_after": 120000, "dlq_before": 0, "dlq_after": 0, "assignment_log_rows": 120, "passed": true}
+[08:22:59] PASS

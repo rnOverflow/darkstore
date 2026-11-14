@@ -1,0 +1,30 @@
+{
+  "scenario": "kill-order",
+  "run_id": "d98abf82",
+  "orders": 40,
+  "rate_per_s": 0.25,
+  "fault": {
+    "kind": "kill",
+    "target": "order",
+    "seconds": 17.9
+  },
+  "accepted": 40,
+  "final_statuses": {
+    "delivered": 40
+  },
+  "failed_attempts": 60,
+  "create_latency_ms": {
+    "p50": 36.7,
+    "p95": 236.6,
+    "max": 285.7
+  },
+  "ws_clients": 0,
+  "ws_reconnects": 0,
+  "stock_before": 120000,
+  "stock_after": 120000,
+  "dlq_before": 0,
+  "dlq_after": 0,
+  "assignment_log_rows": 120,
+  "violations": [],
+  "passed": true
+}

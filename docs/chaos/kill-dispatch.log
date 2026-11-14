@@ -1,0 +1,7 @@
+[08:15:22] run 7edb3c13: kill-dispatch, 40 orders at 0.25/s, fault at +40.0s
+[08:15:29] baseline: stock+reserved=120000 dlq_messages=0
+[08:16:09] FAULT kill dispatch
+[08:16:27] FAULT over after 18s: dispatch is back
+[08:18:12] all requests settled: 40/40 accepted, 0 failed attempts, 0 gave up
+[08:19:14] {"scenario": "kill-dispatch", "run_id": "7edb3c13", "orders": 40, "rate_per_s": 0.25, "fault": {"kind": "kill", "target": "dispatch", "seconds": 18.5}, "accepted": 40, "final_statuses": {"delivered": 40}, "failed_attempts": 0, "create_latency_ms": {"p50": 37.8, "p95": 194.9, "max": 292.2}, "ws_clients": 0, "ws_reconnects": 0, "stock_before": 120000, "stock_after": 120000, "dlq_before": 0, "dlq_after": 0, "assignment_log_rows": 122, "passed": true}
+[08:19:14] PASS

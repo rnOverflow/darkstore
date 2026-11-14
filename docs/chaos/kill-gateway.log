@@ -1,0 +1,7 @@
+[08:23:00] run 73741cf6: kill-gateway, 40 orders at 0.25/s, fault at +40.0s
+[08:23:05] baseline: stock+reserved=120000 dlq_messages=0
+[08:23:45] FAULT kill gateway-1
+[08:24:04] FAULT over after 18s: gateway-1 is back
+[08:25:48] all requests settled: 40/40 accepted, 0 failed attempts, 0 gave up
+[08:26:29] {"scenario": "kill-gateway", "run_id": "73741cf6", "orders": 40, "rate_per_s": 0.25, "fault": {"kind": "kill", "target": "gateway-1", "seconds": 18.2}, "accepted": 40, "final_statuses": {"delivered": 40}, "failed_attempts": 0, "create_latency_ms": {"p50": 41.3, "p95": 173.2, "max": 204.0}, "ws_clients": 12, "ws_reconnects": 7, "stock_before": 120000, "stock_after": 120000, "dlq_before": 0, "dlq_after": 0, "assignment_log_rows": 120, "passed": true}
+[08:26:29] PASS

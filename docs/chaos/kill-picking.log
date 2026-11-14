@@ -1,0 +1,7 @@
+[08:11:30] run 5fdacf2e: kill-picking, 40 orders at 0.25/s, fault at +40.0s
+[08:11:35] baseline: stock+reserved=120000 dlq_messages=0
+[08:12:16] FAULT kill picking
+[08:12:37] FAULT over after 21s: picking is back
+[08:14:21] all requests settled: 40/40 accepted, 0 failed attempts, 0 gave up
+[08:15:22] {"scenario": "kill-picking", "run_id": "5fdacf2e", "orders": 40, "rate_per_s": 0.25, "fault": {"kind": "kill", "target": "picking", "seconds": 20.8}, "accepted": 40, "final_statuses": {"delivered": 40}, "failed_attempts": 0, "create_latency_ms": {"p50": 44.7, "p95": 615.9, "max": 1228.0}, "ws_clients": 0, "ws_reconnects": 0, "stock_before": 120000, "stock_after": 120000, "dlq_before": 0, "dlq_after": 0, "assignment_log_rows": 120, "passed": true}
+[08:15:22] PASS

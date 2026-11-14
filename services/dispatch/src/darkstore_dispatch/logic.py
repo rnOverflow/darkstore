@@ -3,7 +3,7 @@ from __future__ import annotations
 import time
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import select, update
+from sqlalchemy import func, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -95,13 +95,24 @@ async def match_pending(sm: async_sessionmaker[AsyncSession], index: RiderIndex,
     One DB transaction PER ORDER: the Redis claim and its DB row commit together, so a failure
     on order k can never strand claims made for orders 1..k-1. Safe with several replicas
     (SKIP LOCKED) and after crashes (the Redis claim is keyed by order and re-used on retry).
-    After `max_misses` consecutive orders find nobody free the fleet is exhausted: stop early
-    instead of burning Redis calls (it is retried on the next loop tick).
+    The batch is oldest-first but capped at `limit // 5` orders per store so one starved store cannot fill it.
+    Matching is geographic: when a search for a store finds nobody, every other pending order of that
+    store would miss too, so the store is skipped for the rest of this tick (its orders keep their place)
+    and younger orders of other stores are still served. Once `max_misses` distinct stores have missed
+    the fleet is effectively exhausted: stop early (retried on the next loop tick).
     """
+    # Oldest first, but at most `limit // 5` per store: a starved store with a deep backlog must not fill the
+    # whole batch and keep every other store's younger orders from ever being looked at.
+    per_store = max(1, limit // 5)
+    rank = func.row_number().over(partition_by=assignments.c.store_id,
+                                  order_by=assignments.c.ready_at).label("rank")
+    ranked = select(assignments.c.order_id, assignments.c.ready_at, rank).where(
+        assignments.c.status == "pending").subquery()
     async with sm() as s:
-        ids = (await s.execute(select(assignments.c.order_id).where(assignments.c.status == "pending")
-                               .order_by(assignments.c.ready_at).limit(limit))).scalars().all()
-    out, n, misses = st.topic(Topic.DISPATCH_EVENTS), 0, 0
+        ids = (await s.execute(select(ranked.c.order_id).where(ranked.c.rank <= per_store)
+                               .order_by(ranked.c.ready_at).limit(limit))).scalars().all()
+    out, n = st.topic(Topic.DISPATCH_EVENTS), 0
+    missed: set[str | None] = set()   # stores whose search found nobody this tick
     ins = telemetry.instruments()
     for oid in ids:
         wait: float | None = None   # set when this order was assigned; metered after the commit
@@ -111,6 +122,8 @@ async def match_pending(sm: async_sessionmaker[AsyncSession], index: RiderIndex,
                 .with_for_update(skip_locked=True))).first()
             if r is None:
                 continue  # taken by another replica or cancelled meanwhile
+            if r.store_id in missed:
+                continue  # same store, same empty neighbourhood: no Redis search (and no metric: it counts searches)
             t0 = time.perf_counter()
             res = await index.match(r.order_id, r.store_lat, r.store_lng, r.dest_lat, r.dest_lng)
             took = time.perf_counter() - t0
@@ -119,11 +132,10 @@ async def match_pending(sm: async_sessionmaker[AsyncSession], index: RiderIndex,
                 # metered, not traced: a saturated fleet retries every pending order every tick,
                 # and a span per miss would flood the trace backend (tick rate x queue depth)
                 ins.assignments.add(1, {"outcome": "no_rider"})
-                misses += 1
-                if misses >= max_misses:
+                missed.add(r.store_id)
+                if len(missed) >= max_misses:
                     break
                 continue
-            misses = 0
             rider_id, eta_min, rider_km = res
             with telemetry.order_span("dispatch.match", r.order_id, store_id=r.store_id,
                                       rider_id=rider_id, search_ms=round(took * 1000, 2)):

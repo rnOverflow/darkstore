@@ -9,7 +9,7 @@ import time
 from darkstore_common.city import STORES
 from darkstore_common import telemetry
 from darkstore_common.events import make_event
-from darkstore_common.geo import ROAD_FACTOR, step_towards
+from darkstore_common.geo import ROAD_FACTOR, return_to_base, step_towards
 from darkstore_common.kafka import make_producer
 from darkstore_common.loops import run_loop
 from darkstore_common.outbox import enqueue
@@ -26,6 +26,12 @@ log = logging.getLogger("darkstore.rider_sim")
 POSITION_EVERY = 1.0  # real seconds between position events per busy rider
 
 
+def home_of(rider_id: str) -> tuple[float, float]:
+    """A rider's base: fleet spread evenly over the stores, derived from the id (no extra state)."""
+    stores = list(STORES.values())
+    return stores[int(rider_id.rsplit("-", 1)[1]) % len(stores)]
+
+
 async def seed_riders(index: RiderIndex, settings: Settings, rng: random.Random) -> int:
     """Create the rider fleet once (idle, clustered around dark stores).
 
@@ -34,9 +40,8 @@ async def seed_riders(index: RiderIndex, settings: Settings, rng: random.Random)
     """
     if await index.r.get(f"{index.p}seeded"):
         return 0
-    stores = list(STORES.values())
     for i in range(settings.riders):
-        lat, lng = rng.choice(stores)
+        lat, lng = home_of(f"rider-{i:04d}")
         await index.add_rider(
             f"rider-{i:04d}", lat + rng.uniform(-0.012, 0.012), lng + rng.uniform(-0.012, 0.012),
             rating=round(rng.uniform(3.5, 5.0), 2), speed_kmh=round(rng.uniform(16, 24), 1),
@@ -107,9 +112,15 @@ async def serve(settings: Settings, stop: asyncio.Event, ready: asyncio.Event | 
             elif status == "cooldown":
                 if await index.recover_one(rid):
                     await index.clear_noshow(rid)  # back to normal after the bench
-            elif status == "idle" and rng.random() < 0.05:  # idle riders drift a little
-                await index.move(rid, float(h["lat"]) + rng.uniform(-0.0004, 0.0004),
-                                 float(h["lng"]) + rng.uniform(-0.0004, 0.0004))
+            elif status == "idle":
+                lat, lng = float(h["lat"]), float(h["lng"])
+                km = float(h["speed"]) * speed_multiplier(hour, raining, h["cell"]) / ROAD_FACTOR * dt_h
+                nlat, nlng = return_to_base(lat, lng, *home_of(rid), km)   # cycle back to the home store
+                if (nlat, nlng) != (lat, lng):
+                    await index.move(rid, nlat, nlng)
+                elif rng.random() < 0.05:   # at base: drift a little
+                    await index.move(rid, lat + rng.uniform(-0.0004, 0.0004),
+                                     lng + rng.uniform(-0.0004, 0.0004))
 
         async def step():
             nonlocal last_step

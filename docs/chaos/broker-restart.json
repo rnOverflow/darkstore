@@ -1,0 +1,30 @@
+{
+  "scenario": "broker-restart",
+  "run_id": "2117e5e6",
+  "orders": 40,
+  "rate_per_s": 0.25,
+  "fault": {
+    "kind": "restart",
+    "target": "redpanda",
+    "seconds": 2.7
+  },
+  "accepted": 40,
+  "final_statuses": {
+    "delivered": 40
+  },
+  "failed_attempts": 0,
+  "create_latency_ms": {
+    "p50": 47.7,
+    "p95": 184.6,
+    "max": 293.1
+  },
+  "ws_clients": 0,
+  "ws_reconnects": 0,
+  "stock_before": 120000,
+  "stock_after": 120000,
+  "dlq_before": 0,
+  "dlq_after": 0,
+  "assignment_log_rows": 120,
+  "violations": [],
+  "passed": true
+}

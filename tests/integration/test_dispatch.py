@@ -170,7 +170,10 @@ async def test_gate_500_concurrent_orders_zero_double_assigned_riders(env):
     n, rng = 500, random.Random(99)
     async with fleet(
             env, dispatchers=3, **{"riders": 120, "flaky_rate": 0.15, "pickup_timeout_seconds": 8.0,
-                    "rider_cooldown_seconds": 4.0, "pick_seconds": 0.2}) as c:
+                    "rider_cooldown_seconds": 4.0, "pick_seconds": 0.2,
+                    # the suite's default 1s/2s ladder exhausts into the DLQ when 500 orders reorder events across
+                    # topics under load (rider.assigned before picking.completed); production is 5s/30s/5m
+                    "retry_delays": ("1s", "2s", "5s", "10s", "20s")}) as c:
         sem = asyncio.Semaphore(100)
 
         async def fire():
@@ -297,3 +300,63 @@ async def test_event_on_the_wrong_topic_is_rejected_not_obeyed(env):
         msgs = await read_all(env.kafka_bootstrap, dlq_topic(wrong, "dispatch"), wait=20)
         assert len(msgs) == 1
         assert await c.status(oid) != "cancelled" and await _dstatus(c, oid) == "assigned"
+
+
+async def test_orders_for_a_store_with_no_riders_do_not_block_other_stores(env, index):
+    """Regression (found by the chaos run): matching is geographic, so six oldest orders at a store with no
+    rider in range must not stop the matcher before it reaches a younger order at a store that has one."""
+    from sqlalchemy import text
+    from sqlalchemy.ext.asyncio import create_async_engine
+
+    from darkstore_common.db import init_schema, make_sessionmaker
+    from darkstore_common.settings import Settings
+    from darkstore_dispatch.logic import match_pending
+    from darkstore_dispatch.models import META
+
+    engine = create_async_engine(env.database_url)
+    await init_schema(engine, META)
+    await index.add_rider("r-near", *S0)
+    async with engine.begin() as c:
+        await c.execute(text("delete from dispatch.assignments"))
+        for i in range(6):   # oldest first; no rider anywhere near 1 degree away
+            await c.execute(text(
+                "insert into dispatch.assignments(order_id,store_id,store_lat,store_lng,dest_lat,dest_lng,status,ready_at)"
+                f" values ('far-{i}','far',{S0[0] + 1},{S0[1] + 1},{S0[0] + 1},{S0[1] + 1},'pending',now() - interval '1 hour' + {i} * interval '1 second')"))
+        await c.execute(text(
+            "insert into dispatch.assignments(order_id,store_id,store_lat,store_lng,dest_lat,dest_lng,status,ready_at)"
+            f" values ('near',  'store-0',{S0[0]},{S0[1]},{S0[0]},{S0[1]},'pending',now())"))
+    assigned = await match_pending(make_sessionmaker(engine), index, Settings())
+    async with engine.connect() as c:
+        status = (await c.execute(text("select status from dispatch.assignments where order_id='near'"))).scalar_one()
+    await engine.dispose()
+    assert assigned == 1 and status == "assigned"
+
+
+async def test_a_deep_backlog_at_a_starved_store_cannot_crowd_other_stores_out_of_the_batch(env, index):
+    """Review finding: the matcher read the `limit` oldest pending orders before skipping starved stores, so a
+    starved store with more than `limit` older orders filled the whole batch and nothing else was ever served."""
+    from sqlalchemy import text
+    from sqlalchemy.ext.asyncio import create_async_engine
+
+    from darkstore_common.db import init_schema, make_sessionmaker
+    from darkstore_common.settings import Settings
+    from darkstore_dispatch.logic import match_pending
+    from darkstore_dispatch.models import META
+
+    engine = create_async_engine(env.database_url)
+    await init_schema(engine, META)
+    await index.add_rider("r-near2", *S0)
+    async with engine.begin() as c:
+        await c.execute(text("delete from dispatch.assignments"))
+        await c.execute(text(
+            "insert into dispatch.assignments(order_id,store_id,store_lat,store_lng,dest_lat,dest_lng,status,ready_at)"
+            f" select 'far-' || g, 'far', {S0[0] + 1}, {S0[1] + 1}, {S0[0] + 1}, {S0[1] + 1}, 'pending',"
+            " now() - interval '1 hour' + g * interval '1 second' from generate_series(1, 150) g"))
+        await c.execute(text(
+            "insert into dispatch.assignments(order_id,store_id,store_lat,store_lng,dest_lat,dest_lng,status,ready_at)"
+            f" values ('near2','store-0',{S0[0]},{S0[1]},{S0[0]},{S0[1]},'pending',now())"))
+    assigned = await match_pending(make_sessionmaker(engine), index, Settings())   # default limit 100
+    async with engine.connect() as c:
+        status = (await c.execute(text("select status from dispatch.assignments where order_id='near2'"))).scalar_one()
+    await engine.dispose()
+    assert assigned == 1 and status == "assigned"

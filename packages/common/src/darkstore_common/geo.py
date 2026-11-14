@@ -41,3 +41,18 @@ def cell_of(lat: float, lng: float, res: int = MATCH_RES) -> str:
 def ring(cell: str, k: int) -> list[str]:
     """Cells at grid distance exactly k (k=0 -> the cell itself), sorted for determinism."""
     return [cell] if k == 0 else sorted(h3.grid_ring(cell, k))
+
+
+BASE_RADIUS_KM = 0.8   # an idle rider closer than this to its home store is "at base"
+
+
+def return_to_base(lat: float, lng: float, home_lat: float, home_lng: float, km: float,
+                   radius_km: float = BASE_RADIUS_KM) -> tuple[float, float]:
+    """Where an idle rider is after cycling `km` back toward its home store.
+
+    Riders finish a delivery wherever the customer lives; without this the fleet drifts away from
+    remote stores (Whitefield) until nobody is left to serve them."""
+    if haversine_km(lat, lng, home_lat, home_lng) <= radius_km:
+        return lat, lng
+    nlat, nlng, _ = step_towards(lat, lng, home_lat, home_lng, km)
+    return nlat, nlng

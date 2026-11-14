@@ -1,0 +1,7 @@
+[08:30:08] run 4f3c86c3: broker-crash, 40 orders at 0.25/s, fault at +40.0s
+[08:30:14] baseline: stock+reserved=120000 dlq_messages=0
+[08:30:54] FAULT kill redpanda
+[08:31:12] FAULT over after 18s: redpanda is back
+[08:32:54] all requests settled: 40/40 accepted, 0 failed attempts, 0 gave up
+[08:33:34] {"scenario": "broker-crash", "run_id": "4f3c86c3", "orders": 40, "rate_per_s": 0.25, "fault": {"kind": "kill", "target": "redpanda", "seconds": 17.6}, "accepted": 40, "final_statuses": {"delivered": 40}, "failed_attempts": 0, "create_latency_ms": {"p50": 39.1, "p95": 114.5, "max": 152.5}, "ws_clients": 0, "ws_reconnects": 0, "stock_before": 120000, "stock_after": 120000, "dlq_before": 0, "dlq_after": 0, "assignment_log_rows": 120, "passed": true}
+[08:33:34] PASS

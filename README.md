@@ -172,7 +172,7 @@ Audit, fixes and the full threat discussion are in [ADR-0007](docs/adr/0007-gues
 - [docs/adr](docs/adr/README.md): decisions 0001-0008
 - [docs/api/realtime.md](docs/api/realtime.md): REST + WebSocket protocol
 - [docs/observability.md](docs/observability.md), [docs/ml](docs/ml), [docs/load](docs/load), [docs/chaos](docs/chaos), [docs/screenshots](docs/screenshots)
-- `PLAN.md`: the phase plan
+- [docs/development.md](docs/development.md) / `PLAN.md`: conventions, commands, local gotchas and the phase plan
 
 ## License
 

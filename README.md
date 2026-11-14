@@ -5,7 +5,7 @@ A real-time quick-commerce order and ETA platform (Instamart / Zepto style) that
 ```bash
 make up      # build + start ~20 containers, wait until healthy, print URLs
 make demo    # train the ETA model if needed, start the order simulator, print live stats + URLs
-make down    # stop                make clean      # stop and wipe volumes (needed once after pulling P7: DB roles changed)
+make down    # stop                make clean      # stop and wipe all volumes (a full reset)
 ```
 
 **Running it needs only Docker (Compose v2, with about 4 GB given to the Docker VM) and `make`.** Everything is built and run in containers: the Python services share one image, the React apps are built in the `web` image (multi-stage, Node only inside the build), and the ETA model is trained by a one-shot `trainer` container (`make train`, `make retrain`). I checked this by running `make demo` from scratch (volumes wiped, built web assets and trained model moved aside) with `uv`, `node` and `npm` removed from `PATH`: it finished with exit 0 and orders were delivered.
@@ -148,3 +148,7 @@ Audit, fixes and the full threat discussion are in [ADR-0007](docs/adr/0007-gues
 - [docs/api/realtime.md](docs/api/realtime.md): REST + WebSocket protocol
 - [docs/observability.md](docs/observability.md), [docs/ml](docs/ml), [docs/load](docs/load), [docs/chaos](docs/chaos), [docs/screenshots](docs/screenshots)
 - `PLAN.md`: the phase plan
+
+## License
+
+[MIT](LICENSE)

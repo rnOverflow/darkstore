@@ -1,10 +1,12 @@
 .venv
 .git
-__pycache__
+**/__pycache__
 .pytest_cache
-node_modules
+**/node_modules
+web/dist
 .env
 data
+models
 mlruns
 tests
 docs

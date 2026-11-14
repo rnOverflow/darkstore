@@ -7,7 +7,7 @@ from pathlib import Path
 from darkstore_common.tokens import sign
 
 secret = os.environ.get("TOKEN_SECRET")
-env = Path(__file__).resolve().parent.parent / ".env"
+env = Path.cwd() / ".env"   # repo root under make; inside the order container TOKEN_SECRET is already in the env
 if not secret and env.exists():
     secret = dict(line.split("=", 1) for line in env.read_text().split() if "=" in line).get("TOKEN_SECRET")
 if not secret:

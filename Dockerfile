@@ -1,5 +1,5 @@
 # One image for every Python service. Select the entrypoint at runtime with SERVICE=<name>.
-FROM python:3.12-slim AS base
+FROM python:3.12-slim AS app
 # LightGBM needs the OpenMP runtime, which the slim image does not ship
 RUN apt-get update && apt-get install -y --no-install-recommends libgomp1 && rm -rf /var/lib/apt/lists/*
 COPY --from=ghcr.io/astral-sh/uv:0.11 /uv /usr/local/bin/uv
@@ -12,3 +12,10 @@ RUN uv sync --frozen --no-dev && useradd --system --uid 10001 --no-create-home a
 USER app
 ENV SERVICE=order PATH="/app/.venv/bin:$PATH"
 CMD ["sh", "-c", "exec python -m darkstore_${SERVICE}"]
+
+# ETA training/retraining (make train / make retrain): the app image plus the MLflow tracking client,
+# which only training needs. Version equals the MLflow server image in docker-compose.yml.
+FROM app AS trainer
+USER root
+RUN uv pip install --python /app/.venv/bin/python "mlflow-skinny==3.17.2"
+USER app

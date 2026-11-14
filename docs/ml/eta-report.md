@@ -1,4 +1,4 @@
-# ETA model report: 20261113071018-s42
+# ETA model report: 20261114084956-s42
 
 Held-out test = the last 15% of trips by order time (6000 trips, 24000 state snapshots; days 227-267). Train 28000 / val 6000 trips. All numbers are on SIMULATED trips (see docs/ml/README.md).
 

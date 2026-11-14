@@ -13,7 +13,7 @@ x-healthy: &hc
 x-app-env: &app-env
   KAFKA_BOOTSTRAP: redpanda:9092
   REDIS_URL: redis://:${REDIS_PASSWORD:?run make env to generate .env}@redis:6379/0
-  SIM_START_HOUR: ${SIM_START_HOUR:-18}        # one shared simulated clock for every service
+  SIM_START_HOUR: ${SIM_START_HOUR:-16}        # one shared simulated clock for every service
   OTEL_ENDPOINT: http://otel-collector:4318    # traces, metrics and logs (empty = telemetry off)
   OTEL_EXPORTER_OTLP_TIMEOUT: "3000"           # ms: a dead collector must not stall shutdown for long
   OTEL_ATTRIBUTE_VALUE_LENGTH_LIMIT: "256"      # no attribute can carry an oversized string
@@ -179,7 +179,7 @@ services:
       test: ["CMD-SHELL", "python -c \"import urllib.request;urllib.request.urlopen('http://localhost:5000/health')\""]
 
   order:
-    build: .
+    build: {context: ., target: app}
     image: darkstore-app:dev
     read_only: true
     tmpfs: [/tmp]
@@ -254,7 +254,7 @@ services:
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]
     pids_limit: 200
-    environment: {<<: *app-env, SERVICE: simulator, ORDER_API_URL: http://order:8001, SIM_ORDERS_PER_MINUTE: "${SIM_ORDERS_PER_MINUTE:-3}"}
+    environment: {<<: *app-env, SERVICE: simulator, ORDER_API_URL: http://order:8001, SIM_ORDERS_PER_MINUTE: "${SIM_ORDERS_PER_MINUTE:-1}"}
     mem_limit: 192m
     restart: unless-stopped
     profiles: [demo]
@@ -318,16 +318,30 @@ services:
       <<: *hc
       test: ["CMD-SHELL", "python -c \"import urllib.request;urllib.request.urlopen('http://localhost:8003/healthz')\""]
 
+  # One-shot tooling, not part of the stack: `make train` / `make retrain` run it (profile "tools").
+  # Output goes to ./models, ./data and ./docs/ml, written as the host user (see Makefile).
+  trainer:
+    build: {context: ., target: trainer}
+    image: darkstore-trainer:dev
+    profiles: [tools]
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    working_dir: /work
+    environment: {MLFLOW_TRACKING_URI: "http://mlflow:5000", HOME: /tmp}
+    volumes: ["./models:/work/models", "./data:/work/data", "./docs/ml:/work/docs/ml"]
+    mem_limit: 2g
+    depends_on: {mlflow: {condition: service_healthy}}
+
   web:
-    image: nginx:1.27-alpine
+    build: {context: ., dockerfile: web/Dockerfile}   # React apps built in the image; nginx.conf baked in
+    image: darkstore-web:dev
     read_only: true
     tmpfs: [/tmp, /var/cache/nginx, /var/run]
     cap_drop: [ALL]
     cap_add: [CHOWN, SETUID, SETGID, NET_BIND_SERVICE]
     security_opt: ["no-new-privileges:true"]
-    volumes:
-      - ./infra/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
-      - ./web/dist:/usr/share/nginx/html:ro
     ports: ["127.0.0.1:8088:80"]
     mem_limit: 64m
     restart: unless-stopped

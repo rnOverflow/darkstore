@@ -45,7 +45,7 @@ Trace id = first 16 bytes of sha256("trace:" + order_id). Grafana â†’ Explore â†
 ## Secrets and tokens
 - `make env` writes `.env` (git-ignored) with random credentials. Rotate by deleting `.env`, running `make env` and `make clean`.
 - Changing `TOKEN_SECRET` invalidates every issued token; restart all services.
-- Ops dashboard URL with a 4 h token: `uv run --no-sync python scripts/ops_token.py`.
+- Ops dashboard URL with a 4 h token: `make urls` (it runs `scripts/ops_token.py` inside the `order` container, so no host Python is needed).
 
 ## Chaos
 `make chaos SCENARIO=kill-picking|kill-dispatch|kill-order|kill-gateway|broker-restart|broker-crash`. It checks that no acknowledged order is lost or duplicated, DLQ is unchanged, and WebSocket clients reach `delivered`. Run below the fleet capacity (see docs/chaos/).

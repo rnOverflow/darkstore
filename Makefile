@@ -2,14 +2,19 @@
 env:
 	@./scripts/gen_env.sh
 
-.PHONY: env up down sync train retrain web e2e test test-int test-clean test-alerts dashboards chaos health demo load urls clean
+.PHONY: env dirs up down sync train retrain web e2e test test-int test-clean test-alerts dashboards chaos health demo load urls clean
 
-# build the React apps once (nginx serves web/dist)
+# Running the stack needs only Docker + make: the React apps are built inside the `web` image.
+# `make web` is for front-end development on the host (needs Node): it fills web/dist for `npm run preview`.
 web:
 	@test -f web/dist/index.html || { cd web && npm ci && npm run build; }
 
-up: env web
-	docker compose up -d --build --wait --wait-timeout 300
+# bind-mount sources must exist, or Docker creates them root-owned
+dirs:
+	@mkdir -p models/eta data/eta docs/ml
+
+up: env dirs
+	docker compose up -d --build --wait --wait-timeout 600
 	@./scripts/healthcheck.sh
 	@$(MAKE) --no-print-directory urls
 
@@ -43,13 +48,17 @@ test-clean:  ## list testcontainers left behind by an interrupted integration ru
 test-int: sync
 	uv run --no-sync pytest -q -m integration
 
+# ETA training runs in the `trainer` container (no host Python needed); files are written as the host user.
+# It starts MLflow if needed, and works with or without the rest of the stack running.
+TRAINER = docker compose --profile tools run --rm --user $$(id -u):$$(id -g) trainer python -m
+
 # generate simulated trips, train the ETA model, log to MLflow, write docs/ml/eta-report.md
-train: sync
-	uv run --no-sync python -m darkstore_eta.train --mlflow-uri http://localhost:5001
+train: env dirs
+	$(TRAINER) darkstore_eta.train
 
 # retrain on fresh trips; promotes to models/eta/current only if it beats the live model
-retrain: sync
-	uv run --no-sync python -m darkstore_eta.retrain --mlflow-uri http://localhost:5001
+retrain: env dirs
+	$(TRAINER) darkstore_eta.retrain
 
 # Playwright against the running stack (make up first): customer journey + ops dashboard + screenshots
 e2e:
@@ -76,4 +85,4 @@ urls:
 	@echo "MLflow            http://localhost:5001"
 	@echo "Prometheus        http://localhost:9090"
 	@echo "Customer UI       http://localhost:8088"
-	@echo "Ops UI            $$(uv run --no-sync python scripts/ops_token.py 2>/dev/null || echo http://localhost:8088/ops/)"
+	@echo "Ops UI            $$(docker compose exec -T order python - < scripts/ops_token.py 2>/dev/null || echo http://localhost:8088/ops/)"

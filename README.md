@@ -5,10 +5,19 @@ A real-time quick-commerce order and ETA platform (Instamart / Zepto style) that
 ```bash
 make up      # build + start ~20 containers, wait until healthy, print URLs
 make demo    # train the ETA model if needed, start the order simulator, print live stats + URLs
-make test    # unit tests          make test-int   # integration tests (testcontainers)
-make e2e     # Playwright          make chaos SCENARIO=kill-picking   make load
 make down    # stop                make clean      # stop and wipe volumes (needed once after pulling P7: DB roles changed)
 ```
+
+**Running it needs only Docker (Compose v2, with about 4 GB given to the Docker VM) and `make`.** Everything is built and run in containers: the Python services share one image, the React apps are built in the `web` image (multi-stage, Node only inside the build), and the ETA model is trained by a one-shot `trainer` container (`make train`, `make retrain`). I checked this by running `make demo` from scratch (volumes wiped, built web assets and trained model moved aside) with `uv`, `node` and `npm` removed from `PATH`: it finished with exit 0 and orders were delivered.
+
+Host tooling is only for development and verification: `uv` for `make test` / `test-int` / `chaos` / `load`, Node for `make e2e` and front-end work (`make web`).
+
+```bash
+make test    # unit tests          make test-int   # integration tests (testcontainers)
+make e2e     # Playwright          make chaos SCENARIO=kill-picking   make load
+```
+
+The demo simulator is sized to stay under the rider fleet's capacity: 1 order per simulated minute at base demand (`SIM_ORDERS_PER_MINUTE`, 30x clock, so 0.5/s before the rush multipliers), starting at 16:00 (`SIM_START_HOUR`) so the evening rush arrives a few minutes in. Measured on this machine through the lunch peak (sim hour ~13, about 1.1 orders/s target): 551 orders delivered in 15 minutes, order-to-delivered p50 103 s and p95 200 s, assignment backlog 0-1. City-wide destinations make trips longer than in the load test, which is why these are slower than the load-ramp table. The earlier defaults (3 per simulated minute, starting at 18:00) asked for 1.5 orders/s at base and 4.5/s in the evening peak against a fleet that delivers about 1 order/s on those trips, so orders queued for many minutes (656 waiting after 33 minutes). That is a demo-sizing issue, not a platform fault; raise the rate to watch the backlog and the SLO alerts react.
 
 Everything below that is a number was measured on one MacBook (Docker VM ~4 GB / 8 CPUs, 120 simulated riders, six dark stores). Nothing is extrapolated. Raw files are linked next to each table.
 
@@ -118,7 +127,8 @@ Audit, fixes and the full threat discussion are in [ADR-0007](docs/adr/0007-gues
 - No per-customer cap on active orders: unassigned orders hold stock reservations until they time out. Mitigated only by the session and order rate limits at nginx.
 - Dev ports (Postgres, Redis, Prometheus, Grafana, MLflow, Console) are unauthenticated or lightly protected and bound to loopback only. No Kafka SASL/TLS, no Alertmanager, images pinned by tag not digest.
 - The scorer has a batching term that is unused (riders carry one order).
-- Playwright is installed through npm and LightGBM needs `libomp` from Homebrew on macOS.
+- Playwright (`make e2e`) is installed through npm on the host. Everything else, including LightGBM training, runs in containers.
+- The one-image-for-all-services Docker image is about 1.75 GB (LightGBM, pandas, pyarrow ship in every service). Per-service images would be smaller; not done.
 - Outbox rows marked published cannot be reconciled against the broker (would need a reconciler; see ADR-0008).
 
 ## What I would change at Swiggy / Zepto scale

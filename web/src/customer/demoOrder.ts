@@ -1,7 +1,6 @@
 import type { NewOrder } from '../shared/api';
 import type { City } from '../shared/types';
 
-export const DEMO_CUSTOMER = 'demo-customer';
 export const MAX_RADIUS_KM = 2.5;
 const KM_PER_DEG_LAT = 111.32;
 
@@ -32,7 +31,6 @@ export function buildDemoOrder(city: City, rand: () => number = Math.random): Ne
   const skus = new Set<number>();
   while (skus.size < n) skus.add(randInt(rand, 0, 19));
   return {
-    customer_id: DEMO_CUSTOMER,
     store_id: storeId,
     items: [...skus].map((i) => ({ sku: `sku-${i}`, qty: randInt(rand, 1, 3) })),
     lat,

@@ -49,12 +49,22 @@ async def serve(settings: Settings, stop: asyncio.Event, ready: asyncio.Event | 
     tasks: set[asyncio.Task] = set()
 
     async with httpx.AsyncClient(base_url=settings.order_api_url, timeout=10) as client:
+        session = {"token": None, "at": 0.0}
+
+        async def bearer() -> dict[str, str]:
+            """One guest session for all simulated orders, renewed well before it expires."""
+            if session["token"] is None or time.time() - session["at"] > settings.guest_token_ttl - 600:
+                r = await client.post("/sessions")
+                r.raise_for_status()
+                session.update(token=r.json()["token"], at=time.time())
+            return {"Authorization": f"Bearer {session['token']}"}
+
         async def place():
             nonlocal placed, failed
             async with sem:
                 try:
                     r = await client.post("/orders", json=new_order(rng),
-                                          headers={"Idempotency-Key": uuid.uuid4().hex})
+                                          headers={**await bearer(), "Idempotency-Key": uuid.uuid4().hex})
                     placed += r.status_code == 201
                     failed += r.status_code != 201
                 except httpx.HTTPError:

@@ -2,7 +2,7 @@
 env:
 	@./scripts/gen_env.sh
 
-.PHONY: env up down sync train retrain web e2e test test-int test-alerts dashboards health demo load urls clean
+.PHONY: env up down sync train retrain web e2e test test-int test-clean test-alerts dashboards chaos health demo load urls clean
 
 # build the React apps once (nginx serves web/dist)
 web:
@@ -37,6 +37,9 @@ test-alerts:  ## unit-test the SLO alert rules with promtool (needs Docker, not 
 dashboards:  ## regenerate the Grafana dashboards from scripts/gen_dashboards.py
 	python3 scripts/gen_dashboards.py
 
+test-clean:  ## list testcontainers left behind by an interrupted integration run (they hold ~250 MB each)
+	@docker ps -a --filter label=org.testcontainers=true --format '{{.Names}}  {{.Image}}  {{.Status}}'; echo "remove with: docker rm -f <names above>"
+
 test-int: sync
 	uv run --no-sync pytest -q -m integration
 
@@ -59,8 +62,12 @@ demo: up
 	@./scripts/demo_stats.sh
 	@$(MAKE) --no-print-directory urls
 
-load:
-	@echo "load: Locust arrives in P6 (see PLAN.md)"
+load: sync  ## ~9 min step ramp through nginx; needs the stack up and quiet (no simulator). Results: docs/load/
+	uv run --no-sync locust -f tests/load/locustfile.py --headless --host http://localhost:8088 --only-summary
+	uv run --no-sync python -m tests.load.report
+
+chaos:  ## make chaos SCENARIO=kill-picking|kill-dispatch|kill-order|kill-gateway|broker-restart|broker-crash
+	uv run --no-sync python -m tests.chaos.run $(SCENARIO)
 
 urls:
 	@echo ""

@@ -11,7 +11,6 @@ x-healthy: &hc
 # the services that sign or verify tokens (order, gateways, ops-api) receive it, so compromising the
 # simulator or the ETA service cannot mint tracking/ops tokens.
 x-app-env: &app-env
-  DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-darkstore}:${POSTGRES_PASSWORD:?run make env to generate .env}@postgres:5432/${POSTGRES_DB:-darkstore}
   KAFKA_BOOTSTRAP: redpanda:9092
   REDIS_URL: redis://:${REDIS_PASSWORD:?run make env to generate .env}@redis:6379/0
   SIM_START_HOUR: ${SIM_START_HOUR:-18}        # one shared simulated clock for every service
@@ -37,6 +36,7 @@ services:
       - --schema-registry-addr=0.0.0.0:8081
     ports: ["127.0.0.1:19092:19092", "127.0.0.1:8081:8081", "127.0.0.1:9644:9644"]
     mem_limit: 900m
+    restart: unless-stopped
     volumes: [redpanda-data:/var/lib/redpanda/data]
     healthcheck:
       <<: *hc
@@ -46,8 +46,9 @@ services:
   # (RP_BOOTSTRAP_* env vars are not honored by this image, so set it via the admin API.)
   redpanda-config:
     image: redpandadata/redpanda:v24.2.7
-    entrypoint: ["rpk", "-X", "admin.hosts=redpanda:9644", "cluster", "config", "set",
-                 "topic_memory_per_partition", "262144"]
+    # Also turns write caching OFF: dev-container mode enables it, so acks (even acks=all) precede fsync and a
+    # kill -9 loses ~100 ms of acknowledged records (found by the broker-crash chaos run, ADR-0008).
+    entrypoint: ["sh", "-c", "rpk -X admin.hosts=redpanda:9644 cluster config set topic_memory_per_partition 262144 && rpk -X admin.hosts=redpanda:9644 cluster config set write_caching_default false"]
     restart: "no"
     mem_limit: 128m
     depends_on:
@@ -61,6 +62,7 @@ services:
       KAFKA_SCHEMAREGISTRY_URLS: http://redpanda:8081
     ports: ["127.0.0.1:8080:8080"]
     mem_limit: 256m
+    restart: unless-stopped
     depends_on:
       redpanda: {condition: service_healthy}
 
@@ -70,11 +72,20 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-darkstore}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?run make env to generate .env}
       POSTGRES_DB: ${POSTGRES_DB:-darkstore}
+      PG_PASSWORD_ORDER: ${PG_PASSWORD_ORDER:?run make env to generate .env}
+      PG_PASSWORD_INVENTORY: ${PG_PASSWORD_INVENTORY:?run make env to generate .env}
+      PG_PASSWORD_PICKING: ${PG_PASSWORD_PICKING:?run make env to generate .env}
+      PG_PASSWORD_DISPATCH: ${PG_PASSWORD_DISPATCH:?run make env to generate .env}
+      PG_PASSWORD_RIDER_SIM: ${PG_PASSWORD_RIDER_SIM:?run make env to generate .env}
+      PG_PASSWORD_ETA: ${PG_PASSWORD_ETA:?run make env to generate .env}
+      PG_PASSWORD_GATEWAY: ${PG_PASSWORD_GATEWAY:?run make env to generate .env}
+      PG_PASSWORD_OPS_API: ${PG_PASSWORD_OPS_API:?run make env to generate .env}
     ports: ["127.0.0.1:5433:5432"]
     mem_limit: 256m
+    restart: unless-stopped
     volumes:
       - pg-data:/var/lib/postgresql/data
-      - ./infra/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+      - ./infra/postgres/init-roles.sh:/docker-entrypoint-initdb.d/init-roles.sh:ro
     healthcheck:
       <<: *hc
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-darkstore} -d ${POSTGRES_DB:-darkstore}"]
@@ -87,6 +98,7 @@ services:
               "--requirepass", "${REDIS_PASSWORD:?run make env to generate .env}"]
     ports: ["127.0.0.1:6379:6379"]
     mem_limit: 192m
+    restart: unless-stopped
     healthcheck:
       <<: *hc
       test: ["CMD-SHELL", "redis-cli -a \"$$REDIS_PASSWORD\" --no-auth-warning ping | grep -q PONG"]
@@ -146,20 +158,22 @@ services:
       - grafana-data:/var/lib/grafana
     ports: ["127.0.0.1:3000:3000"]
     mem_limit: 384m
+    restart: unless-stopped
     depends_on: [prometheus, tempo, loki]
     healthcheck:
       <<: *hc
       test: ["CMD-SHELL", "wget -qO- http://localhost:3000/api/health | grep -q ok"]
 
   mlflow:
-    image: ghcr.io/mlflow/mlflow:v2.16.0
+    image: ghcr.io/mlflow/mlflow:v3.17.2
     command: >
-      mlflow server --host 0.0.0.0 --port 5000
+      mlflow server --host 0.0.0.0 --port 5000 --workers 1 --allowed-hosts "localhost:5001,127.0.0.1:5001,mlflow:5000,localhost:5000"
       --backend-store-uri sqlite:////mlflow/mlflow.db
       --serve-artifacts --artifacts-destination /mlflow/artifacts
     volumes: [mlflow-data:/mlflow]
     ports: ["127.0.0.1:5001:5000"]
-    mem_limit: 640m
+    mem_limit: 1g
+    restart: unless-stopped
     healthcheck:
       <<: *hc
       test: ["CMD-SHELL", "python -c \"import urllib.request;urllib.request.urlopen('http://localhost:5000/health')\""]
@@ -172,9 +186,10 @@ services:
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]
     pids_limit: 200
-    environment: {<<: *app-env, SERVICE: order, HTTP_PORT: "8001", TOKEN_SECRET: "${TOKEN_SECRET:?run make env to generate .env}"}
+    environment: {<<: *app-env, SERVICE: order, DATABASE_URL: "postgresql+asyncpg://svc_orders:${PG_PASSWORD_ORDER}@postgres:5432/${POSTGRES_DB:-darkstore}", HTTP_PORT: "8001", TOKEN_SECRET: "${TOKEN_SECRET:?run make env to generate .env}"}
     ports: ["127.0.0.1:8001:8001"]
     mem_limit: 192m
+    restart: unless-stopped
     depends_on: &app-deps
       redpanda: {condition: service_healthy}
       redpanda-config: {condition: service_completed_successfully}
@@ -191,8 +206,9 @@ services:
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]
     pids_limit: 200
-    environment: {<<: *app-env, SERVICE: inventory}
+    environment: {<<: *app-env, SERVICE: inventory, DATABASE_URL: "postgresql+asyncpg://svc_inventory:${PG_PASSWORD_INVENTORY}@postgres:5432/${POSTGRES_DB:-darkstore}"}
     mem_limit: 192m
+    restart: unless-stopped
     depends_on: {<<: *app-deps, order: {condition: service_healthy}}
 
   picking:
@@ -202,8 +218,9 @@ services:
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]
     pids_limit: 200
-    environment: {<<: *app-env, SERVICE: picking, PICK_VARIABLE: "true"}
+    environment: {<<: *app-env, SERVICE: picking, DATABASE_URL: "postgresql+asyncpg://svc_picking:${PG_PASSWORD_PICKING}@postgres:5432/${POSTGRES_DB:-darkstore}", PICK_VARIABLE: "true"}
     mem_limit: 192m
+    restart: unless-stopped
     depends_on: {<<: *app-deps, order: {condition: service_healthy}}
 
   dispatch:
@@ -213,8 +230,9 @@ services:
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]
     pids_limit: 200
-    environment: {<<: *app-env, SERVICE: dispatch}
+    environment: {<<: *app-env, SERVICE: dispatch, DATABASE_URL: "postgresql+asyncpg://svc_dispatch:${PG_PASSWORD_DISPATCH}@postgres:5432/${POSTGRES_DB:-darkstore}"}
     mem_limit: 192m
+    restart: unless-stopped
     depends_on: {<<: *app-deps, order: {condition: service_healthy}}
 
   rider-sim:
@@ -224,8 +242,9 @@ services:
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]
     pids_limit: 200
-    environment: {<<: *app-env, SERVICE: rider_sim, RIDERS: "120", FLAKY_RATE: "0.05"}
+    environment: {<<: *app-env, SERVICE: rider_sim, DATABASE_URL: "postgresql+asyncpg://svc_rider_sim:${PG_PASSWORD_RIDER_SIM}@postgres:5432/${POSTGRES_DB:-darkstore}", RIDERS: "120", FLAKY_RATE: "0.05"}
     mem_limit: 192m
+    restart: unless-stopped
     depends_on: {<<: *app-deps, order: {condition: service_healthy}}
 
   simulator:
@@ -237,6 +256,7 @@ services:
     pids_limit: 200
     environment: {<<: *app-env, SERVICE: simulator, ORDER_API_URL: http://order:8001, SIM_ORDERS_PER_MINUTE: "${SIM_ORDERS_PER_MINUTE:-3}"}
     mem_limit: 192m
+    restart: unless-stopped
     profiles: [demo]
     depends_on: {<<: *app-deps, order: {condition: service_healthy}}
 
@@ -247,9 +267,10 @@ services:
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]
     pids_limit: 200
-    environment: {<<: *app-env, SERVICE: eta, ETA_MODEL_DIR: /app/models/eta/current}
+    environment: {<<: *app-env, SERVICE: eta, DATABASE_URL: "postgresql+asyncpg://svc_eta:${PG_PASSWORD_ETA}@postgres:5432/${POSTGRES_DB:-darkstore}", ETA_MODEL_DIR: /app/models/eta/current}
     volumes: ["./models:/app/models:ro"]   # model bundles are pickles: mount only what you trust
     mem_limit: 512m
+    restart: unless-stopped
     depends_on: {<<: *app-deps, order: {condition: service_healthy}}
 
   gateway-1:
@@ -259,8 +280,9 @@ services:
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]
     pids_limit: 200
-    environment: {<<: *app-env, SERVICE: gateway, HTTP_PORT: "8002", TOKEN_SECRET: "${TOKEN_SECRET:?run make env to generate .env}", WS_ALLOWED_ORIGINS: '["http://localhost:8088"]'}
+    environment: {<<: *app-env, SERVICE: gateway, DATABASE_URL: "postgresql+asyncpg://svc_gateway:${PG_PASSWORD_GATEWAY}@postgres:5432/${POSTGRES_DB:-darkstore}", HTTP_PORT: "8002", TOKEN_SECRET: "${TOKEN_SECRET:?run make env to generate .env}", WS_ALLOWED_ORIGINS: '["http://localhost:8088"]'}
     mem_limit: 192m
+    restart: unless-stopped
     depends_on: {<<: *app-deps, order: {condition: service_healthy}}
     healthcheck:
       <<: *hc
@@ -273,8 +295,9 @@ services:
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]
     pids_limit: 200
-    environment: {<<: *app-env, SERVICE: gateway, HTTP_PORT: "8002", TOKEN_SECRET: "${TOKEN_SECRET:?run make env to generate .env}", WS_ALLOWED_ORIGINS: '["http://localhost:8088"]'}
+    environment: {<<: *app-env, SERVICE: gateway, DATABASE_URL: "postgresql+asyncpg://svc_gateway:${PG_PASSWORD_GATEWAY}@postgres:5432/${POSTGRES_DB:-darkstore}", HTTP_PORT: "8002", TOKEN_SECRET: "${TOKEN_SECRET:?run make env to generate .env}", WS_ALLOWED_ORIGINS: '["http://localhost:8088"]'}
     mem_limit: 192m
+    restart: unless-stopped
     depends_on: {<<: *app-deps, order: {condition: service_healthy}}
     healthcheck:
       <<: *hc
@@ -287,8 +310,9 @@ services:
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]
     pids_limit: 200
-    environment: {<<: *app-env, SERVICE: ops_api, HTTP_PORT: "8003", TOKEN_SECRET: "${TOKEN_SECRET:?run make env to generate .env}"}
+    environment: {<<: *app-env, SERVICE: ops_api, DATABASE_URL: "postgresql+asyncpg://svc_ops_api:${PG_PASSWORD_OPS_API}@postgres:5432/${POSTGRES_DB:-darkstore}", HTTP_PORT: "8003", TOKEN_SECRET: "${TOKEN_SECRET:?run make env to generate .env}"}
     mem_limit: 192m
+    restart: unless-stopped
     depends_on: {<<: *app-deps, order: {condition: service_healthy}}
     healthcheck:
       <<: *hc
@@ -306,6 +330,7 @@ services:
       - ./web/dist:/usr/share/nginx/html:ro
     ports: ["127.0.0.1:8088:80"]
     mem_limit: 64m
+    restart: unless-stopped
     depends_on:
       gateway-1: {condition: service_healthy}
       gateway-2: {condition: service_healthy}

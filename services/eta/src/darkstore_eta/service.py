@@ -143,7 +143,9 @@ class EtaHandler:
 
     async def _publish(self, s: AsyncSession, row, now: datetime) -> None:
         feats = self._features(row, now)
-        eta = self.predictor.predict(feats)             # never raises: heuristic fallback inside
+        # never raises (heuristic fallback inside). In a thread: model inference is CPU work and must not
+        # block the event loop, or consumer heartbeats stall and the group rebalances under load (P6 finding)
+        eta = await asyncio.to_thread(self.predictor.predict, feats)
         telemetry.instruments().eta_predictions.add(1, {"source": eta.source})
         vals = dict(last_p50=eta.p50, last_p90=eta.p90, model_version=eta.model_version)
         if row.first_p50 is None:

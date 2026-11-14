@@ -11,10 +11,15 @@ Everything is same-origin behind nginx at **http://localhost:8088**:
 | `/api/city` | ops-api, public |
 | `/api/ops/...` | ops-api, needs `Authorization: Bearer <ops token>` |
 
-## Order REST (existing, one addition)
-`POST /api/orders` body `{customer_id, store_id, items:[{sku,qty}], lat, lng}` returns
-`201 {"order_id": "...", "status": "created", "tracking_token": "<token>"}`.
-`GET /api/orders/{id}` unchanged. Stores/city: `GET /api/city`:
+## Order REST (authentication: ADR-0007)
+1. `POST /api/sessions` (anonymous, 5 r/s per IP) returns `201 {"customer_id": "g-...", "token": "<guest token>"}`.
+2. `POST /api/orders` with `Authorization: Bearer <guest token>` and an `Idempotency-Key` header (1-64 chars of
+   `A-Za-z0-9._:-`). Body `{store_id, items:[{sku,qty}], lat, lng}`; a `customer_id` in the body is ignored (identity
+   comes from the token). Returns `201 {"order_id", "status": "created", "tracking_token"}`; an idempotent replay
+   returns `200` with the same order and a fresh tracking token (keys are scoped to the session, so a replay is by the owner; a lost 201 does not strand the order). `409` if the same key is reused with a different body; `422` if the destination is more than 15 km from the store.
+3. `GET /api/orders/{id}` and `POST /api/orders/{id}/cancel` need `Bearer <tracking token for that order>` (or ops).
+   Another order's token gets 403; missing/invalid/expired gets 401. Bad id and bad token are indistinguishable.
+Stores/city: `GET /api/city`:
 ```json
 {"center": [12.9716, 77.5946], "bounds": [[12.9116,77.5346],[13.0316,77.6546]],
  "stores": {"store-0": [12.9352, 77.6245], "...": []}, "sim_speed": 30}

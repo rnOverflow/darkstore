@@ -66,7 +66,8 @@ class ConsumerRunner:
     async def run(self, stop: asyncio.Event) -> None:
         consumer = AIOKafkaConsumer(
             *self.topics, *self._retry_info, bootstrap_servers=self.bootstrap, group_id=self.group,
-            enable_auto_commit=False, auto_offset_reset="earliest", max_poll_interval_ms=900_000)
+            enable_auto_commit=False, auto_offset_reset="earliest", max_poll_interval_ms=900_000,
+            session_timeout_ms=30_000, heartbeat_interval_ms=3_000)
         await consumer.start()
         self._preinit_counters()
         paused: dict[TopicPartition, float] = {}  # partition -> resume time (retry backoff)
@@ -114,6 +115,13 @@ class ConsumerRunner:
                             # rebalance took the partition: the new owner redelivers, and
                             # processed_events makes the repeat harmless
                             log.warning("commit failed (rebalance); message will be redelivered")
+                            # The consumer's fetch position is already past the rest of this batch. Rewind
+                            # to the first uncommitted message or those are skipped for good (found by the
+                            # P6 chaos run: 10 consecutive events never reached a consumer group).
+                            try:
+                                consumer.seek(tp, m.offset)
+                            except IllegalStateError:
+                                pass  # partition was revoked: the new owner starts from the committed offset
                             break
         finally:
             telemetry.clear_lag(self.group)

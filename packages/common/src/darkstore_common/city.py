@@ -40,3 +40,13 @@ def nearest_store(lat: float, lng: float) -> str:
 def random_point(rng: random.Random) -> tuple[float, float]:
     return (CENTER[0] + rng.uniform(-HALF_SPAN_DEG, HALF_SPAN_DEG),
             CENTER[1] + rng.uniform(-HALF_SPAN_DEG, HALF_SPAN_DEG))
+
+
+MAX_DELIVERY_KM = 15.0   # farther than any in-city trip; also bounds how long one order can hold a rider
+
+
+def deliverable(store_id: str, lat: float, lng: float) -> bool:
+    """False when the destination is implausibly far from a known store (a guest could otherwise hold a
+    rider for hours with an out-of-city destination). Unknown stores pass: inventory rejects them."""
+    store = STORES.get(store_id)
+    return store is None or haversine_km(*store, lat, lng) <= MAX_DELIVERY_KM

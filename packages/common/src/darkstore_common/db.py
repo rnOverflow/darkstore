@@ -51,5 +51,10 @@ def make_sessionmaker(engine: AsyncEngine) -> async_sessionmaker[AsyncSession]:
 async def init_schema(engine: AsyncEngine, meta: ServiceMeta) -> None:
     async with engine.begin() as conn:
         await conn.execute(text("SELECT pg_advisory_xact_lock(42)"))  # serialize concurrent DDL
-        await conn.execute(text(f'CREATE SCHEMA IF NOT EXISTS "{meta.metadata.schema}"'))
+        # CREATE SCHEMA IF NOT EXISTS still demands CREATE on the database even when the schema exists, and a
+        # least-privilege service role (own schema only) does not have it: look first, create only if missing
+        exists = (await conn.execute(text("SELECT 1 FROM pg_namespace WHERE nspname = :n"),
+                                     {"n": meta.metadata.schema})).first()
+        if exists is None:
+            await conn.execute(text(f'CREATE SCHEMA "{meta.metadata.schema}"'))
         await conn.run_sync(meta.metadata.create_all)

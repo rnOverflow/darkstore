@@ -15,6 +15,8 @@ from .models import META
 
 
 async def serve(settings: Settings, stop: asyncio.Event, ready: asyncio.Event | None = None):
+    if not settings.token_secret:
+        raise RuntimeError("TOKEN_SECRET is not set: the order service cannot issue or verify tokens")
     async def handler(session, env):
         await logic.apply_event(session, settings, env)
 

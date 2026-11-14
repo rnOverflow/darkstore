@@ -10,8 +10,11 @@ const cmp = (a, b) => { const [am, as] = a.split('-').map(Number); const [bm, bs
 const city = await (await fetch(`${base}/api/city`)).json();
 ok(Array.isArray(city.center) && city.stores && Array.isArray(city.bounds), '/api/city shape');
 const [sid, [slat, slng]] = Object.entries(city.stores)[0];
-const r = await fetch(`${base}/api/orders`, { method: 'POST', headers: { 'content-type': 'application/json' },
-  body: JSON.stringify({ customer_id: 'demo-customer', store_id: sid, items: [{ sku: 'sku-3', qty: 2 }], lat: slat + 0.01, lng: slng + 0.01 }) });
+const sess = await (await fetch(`${base}/api/sessions`, { method: 'POST' })).json();
+ok(typeof sess.token === 'string' && sess.customer_id, 'POST /api/sessions -> guest token');
+ok((await fetch(`${base}/api/orders`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' })).status === 401, 'POST /api/orders without a session -> 401');
+const r = await fetch(`${base}/api/orders`, { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${sess.token}` },
+  body: JSON.stringify({ store_id: sid, items: [{ sku: 'sku-3', qty: 2 }], lat: slat + 0.01, lng: slng + 0.01 }) });
 const order = await r.json();
 ok(r.status === 201 && order.order_id && order.tracking_token && order.status === 'created', 'POST /api/orders -> 201');
 for (const p of ['summary', 'riders', 'heatmap', 'late']) {
@@ -32,8 +35,8 @@ const connect = (token, orderId, last = null) => new Promise((resolve) => {
 // bad token
 const bad = await connect('nope', order.order_id);
 ok(bad.code === 4401, `bad token closes 4401 (got ${bad.code})`);
-const otherOrder = await (await fetch(`${base}/api/orders`, { method: 'POST', headers: { 'content-type': 'application/json' },
-  body: JSON.stringify({ customer_id: 'x', store_id: sid, items: [{ sku: 'sku-1', qty: 1 }], lat: slat, lng: slng }) })).json();
+const otherOrder = await (await fetch(`${base}/api/orders`, { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${sess.token}` },
+  body: JSON.stringify({ store_id: sid, items: [{ sku: 'sku-1', qty: 1 }], lat: slat, lng: slng }) })).json();
 const forb = await connect(otherOrder.tracking_token, order.order_id);
 ok(forb.code === 4403, `other order's token closes 4403 (got ${forb.code})`);
 // happy path: ~9 s window

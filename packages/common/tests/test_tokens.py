@@ -50,3 +50,18 @@ def test_unknown_role_and_missing_order_for_customer_are_rejected():
         sign("", role="ops", ttl_s=60)                         # refuse to sign with an empty secret
     with pytest.raises(InvalidToken):
         verify("", sign(SECRET, role="ops", ttl_s=60), now=1)
+
+
+def test_guest_token_carries_a_customer_id_and_has_no_order():
+    c = verify(SECRET, sign(SECRET, role="guest", customer_id="g-1", ttl_s=60, now=0), now=1)
+    assert (c.role, c.customer_id, c.order_id) == ("guest", "g-1", None)
+    with pytest.raises(ValueError):
+        sign(SECRET, role="guest", ttl_s=60)
+
+
+def test_a_guest_payload_without_a_customer_id_is_rejected():
+    import base64, hashlib, hmac, json
+    body = base64.urlsafe_b64encode(json.dumps({"r": "guest", "o": None, "e": 9**9}).encode()).rstrip(b"=").decode()
+    sig = base64.urlsafe_b64encode(hmac.new(SECRET.encode(), body.encode(), hashlib.sha256).digest()).rstrip(b"=").decode()
+    with pytest.raises(InvalidToken):
+        verify(SECRET, f"{body}.{sig}", now=1)

@@ -1,4 +1,4 @@
-import { createOrder, fetchCity } from '../shared/api';
+import { createOrder, fetchCity, startSession } from '../shared/api';
 import { buildDemoOrder } from './demoOrder';
 import { startTracking } from './tracker';
 import { useCustomerStore } from './store';
@@ -24,7 +24,8 @@ export async function placeDemoOrder(): Promise<void> {
   st.setError(null);
   try {
     const city = await fetchCity();
-    const created = await createOrder(buildDemoOrder(city));
+    const session = await startSession();
+    const created = await createOrder(buildDemoOrder(city), session.token);
     history.pushState(null, '', trackingUrl(created.order_id, created.tracking_token));
     startTracking(created.order_id, created.tracking_token);
   } catch (e) {

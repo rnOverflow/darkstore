@@ -53,7 +53,10 @@ def create_app(settings: Settings, store: TrackStore, hub: Hub) -> FastAPI:
             frame = json.loads(raw) if len(raw) <= settings.ws_max_frame_bytes else None
             if not isinstance(frame, dict) or frame.get("type") != "auth":
                 raise InvalidToken("first frame must be auth")
-            return verify(settings.token_secret, frame.get("token"))
+            claims = verify(settings.token_secret, frame.get("token"))
+            if claims.role not in ("customer", "ops"):   # e.g. a guest (order-creation) token
+                raise InvalidToken("role cannot track orders")
+            return claims
         except (InvalidToken, ValueError):
             await _fail(ws, "unauthorized", "invalid or expired token")
             return None

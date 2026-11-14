@@ -16,4 +16,7 @@ async def run_loop(stop: asyncio.Event, step: Callable[[], Awaitable[object]], i
             await step()
         except Exception:  # noqa: BLE001
             log.exception("%s iteration failed; continuing", name)
-        await asyncio.sleep(interval)
+        try:                       # wake immediately on stop so shutdown never waits out an interval
+            await asyncio.wait_for(stop.wait(), interval)
+        except asyncio.TimeoutError:
+            pass

@@ -26,17 +26,24 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 export const fetchCity = (): Promise<City> => request<City>('/api/city');
 
 export interface NewOrder {
-  customer_id: string;
   store_id: string;
   items: { sku: string; qty: number }[];
   lat: number;
   lng: number;
 }
 
-export const createOrder = (body: NewOrder): Promise<CreatedOrder> =>
+/** Anonymous guest session: the SERVER assigns the customer id; the token can only create orders. */
+export const startSession = (): Promise<{ customer_id: string; token: string }> =>
+  request('/api/sessions', { method: 'POST' });
+
+export const createOrder = (body: NewOrder, sessionToken: string): Promise<CreatedOrder> =>
   request<CreatedOrder>('/api/orders', {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers: {
+      'content-type': 'application/json',
+      authorization: `Bearer ${sessionToken}`,
+      'idempotency-key': crypto.randomUUID(),
+    },
     body: JSON.stringify(body),
   });
 

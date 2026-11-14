@@ -7,7 +7,9 @@ from contextlib import asynccontextmanager
 
 from aiokafka import AIOKafkaConsumer, AIOKafkaProducer
 
+import httpx
 from darkstore_common.envelope import Envelope
+from darkstore_common.tokens import sign
 
 
 async def publish(bootstrap: str, topic: str, env: Envelope, headers=None) -> None:
@@ -56,3 +58,23 @@ async def running(coro_factory):
     finally:
         stop.set()
         await asyncio.wait_for(task, 30)
+
+
+TEST_SECRET = "t" * 32
+
+
+class AutoAuth(httpx.Auth):
+    """Test client auth: POST /orders as a guest session, every other call as ops (which may read/cancel any
+    order). An explicit Authorization header always wins, so auth tests can send the exact token they want."""
+
+    def __init__(self, secret: str, customer: str = "c1"):
+        self.secret, self.customer = secret, customer
+
+    def auth_flow(self, request):
+        if "authorization" not in request.headers:
+            if request.method == "POST" and request.url.path == "/orders":
+                tok = sign(self.secret, role="guest", customer_id=self.customer, ttl_s=600)
+            else:
+                tok = sign(self.secret, role="ops", ttl_s=600)
+            request.headers["Authorization"] = f"Bearer {tok}"
+        yield request

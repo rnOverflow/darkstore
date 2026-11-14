@@ -105,7 +105,6 @@ function createOrder(body) {
 
 function validOrder(b) {
   if (!b || typeof b !== 'object') return 'body must be an object';
-  if (typeof b.customer_id !== 'string') return 'customer_id';
   if (!CITY.stores[b.store_id]) return 'store_id';
   if (!Number.isFinite(b.lat) || !Number.isFinite(b.lng)) return 'lat/lng';
   if (!Array.isArray(b.items) || b.items.length < 1 || b.items.length > 4) return 'items (1-4)';
@@ -213,7 +212,9 @@ const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, `http://${req.headers.host}`);
   const path = url.pathname;
   if (req.method === 'GET' && path === '/api/city') return json(res, 200, CITY);
+  if (req.method === 'POST' && path === '/api/sessions') return json(res, 201, { customer_id: 'g-mock', token: 'mock-guest' });
   if (req.method === 'POST' && path === '/api/orders') {
+    if (req.headers.authorization !== 'Bearer mock-guest') return json(res, 401, { detail: 'missing bearer token' });
     const body = await readBody(req);
     const bad = validOrder(body);
     if (bad) return json(res, 422, { detail: `invalid: ${bad}` });

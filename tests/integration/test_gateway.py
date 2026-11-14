@@ -84,7 +84,8 @@ async def test_unauthenticated_and_badly_authenticated_connections_are_refused(e
         assert (await recv(ws))["code"] == "unauthorized"
         await expect_close(ws, 4401)
         for bad in ("garbage", sign("another-secret-" + "y" * 20, role="ops", ttl_s=60),
-                    sign(SECRET, role="ops", ttl_s=-5)):
+                    sign(SECRET, role="ops", ttl_s=-5),
+                    sign(SECRET, role="guest", customer_id="g-1", ttl_s=60)):   # order-creation token: no tracking
             ws = await open_ws(port, bad)
             assert (await recv(ws))["code"] == "unauthorized"
             await expect_close(ws, 4401)

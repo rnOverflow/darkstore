@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from .consumer import ConsumerRunner, Handler
 from .db import ServiceMeta, init_schema, make_engine, make_sessionmaker
 from .kafka import ensure_topics, make_producer
+from . import retention
 from .outbox import OutboxRelay
 from .settings import Settings
 from .topics import Topic
@@ -31,7 +32,7 @@ async def run_service(settings: Settings, *, meta: ServiceMeta, group: str,
     names = [settings.topic(t) for t in {*consumes, *produces}] + runner.owned_topics()
     await ensure_topics(settings.kafka_bootstrap, names, settings.topic_partitions)
     relay = OutboxRelay(sm, meta, producer)
-    loops = [relay.run(stop), *[e(sm, stop) for e in extra]]
+    loops = [relay.run(stop), retention.loop(settings, meta)(sm, stop), *[e(sm, stop) for e in extra]]
     if consumes:  # producer-only services (e.g. rider-sim) have nothing to consume
         loops.insert(0, runner.run(stop))
     tasks = [asyncio.create_task(c) for c in loops]

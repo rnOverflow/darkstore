@@ -5,6 +5,8 @@ import socket
 import uuid
 
 import pytest
+
+from .helpers import TEST_SECRET
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine
 from testcontainers.core.container import DockerContainer
@@ -86,6 +88,6 @@ async def env(pg_url, kafka_bootstrap, redis_url) -> Settings:
     await engine.dispose()
     settings = Settings(database_url=pg_url, kafka_bootstrap=kafka_bootstrap,
                     topic_prefix=f"t{uuid.uuid4().hex[:8]}", retry_delays=("1s", "2s"),
-                    pick_seconds=0.3, sweep_interval=0.1, topic_partitions=3, seed_stock=False, redis_url=redis_url)
+                    pick_seconds=0.3, sweep_interval=0.1, topic_partitions=3, seed_stock=False, redis_url=redis_url, token_secret=TEST_SECRET)
     yield settings
     await _drop_topics(kafka_bootstrap, settings.topic_prefix)  # keep the shared broker under its partition cap

@@ -46,10 +46,10 @@
 ### P5 Observability — gate: screenshot of one order trace spanning all services  ✅ done (see docs/observability.md, ADR-0006)
 - T5.1 OTel in common lib + Kafka header propagation · T5.2 five Grafana dashboards as code · T5.3 SLO alert rules
 
-### P6 Chaos + load — gate: no lost/duplicated orders; measured throughput/latency documented
+### P6 Chaos + load — gate: no lost/duplicated orders; measured throughput/latency documented  ✅ done (docs/chaos, docs/load, ADR-0008)
 - T6.1 kill consumer · T6.2 kill gateway replica · T6.3 broker restart mid-flow · T6.4 Locust ramp + results table
 
-### P7 Security, review, docs
+### P7 Security, review, docs  ✅ done (ADR-0007, README, docs/verification.md, docs/runbook.md; open items listed in ADR-0007 'Known deviations')
 Backlog carried from P1 security review (not yet done): authn on all `/orders*` routes with ownership checks and server-assigned `customer_id`; rate limits + body size cap; hide `/docs`; Kafka SASL/TLS + per-service ACLs; per-service Postgres roles (all services share one superuser today); pin images by digest; outbox/processed_events purge; single-relay advisory lock; cap `attempts` (a never-picked-up order can cycle forever) and add retention for `assignment_log`/`assignments`; Redis ACLs (requirepass is done); the flat pickup timeout should derive from rider ETA; customer cancel after pickup is only half-handled (documented); batching potential is implemented in the scorer but riders are single-order (term is always 0).
 From the P4 reviews (open): customer authn so order creation and `GET/POST /orders/{id}` are not bearer-by-order-id; token revocation (`jti` + denylist) and key rotation (`kid`), or asymmetric signing so only the order service can mint; the ops token is a 4 h bearer printed to the terminal; `limit_req`/real-IP handling behind a proxy (nginx rate-limits by remote addr); HSTS once TLS exists; a separate lossy consumer for `rider.positions` so a position flood cannot delay statuses; close tracking sockets a grace period after a terminal status; cross-topic rank can swallow an intermediate status from the history list (the stepper still shows it done).
 From the P3 review: MLflow server is v2.16.0 with no auth (upgrade, auth proxy, digest-pin); the model bundle digest is verified but a writer of both meta.json and the pickles can still run code (sign bundles); retention for `eta.order_state`/`eta.outcomes`; bound `occurred_at` so forged timestamps cannot poison `outcomes.actual_min`; stream `eta.updated` to clients with a sequence number (P4).

@@ -3,7 +3,7 @@ name = "darkstore-eta"
 version = "0.1.0"
 requires-python = ">=3.12"
 dependencies = ["darkstore-common", "lightgbm>=4.5", "scikit-learn>=1.5", "pandas>=2.2",
-                "pyarrow>=17", "numpy>=1.26", "joblib>=1.4"]
+                "pyarrow>=23.0.1", "numpy>=1.26", "joblib>=1.4"]
 
 [tool.uv.sources]
 darkstore-common = { workspace = true }

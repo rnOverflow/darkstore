@@ -101,6 +101,10 @@ async def test_heatmap_demand_counts_only_orders_still_in_flight(env):
     async with fleet(env, seed=[("r1", S0[0], S0[1], False)], extra=(serve_eta,), eta_model_enabled=False) as c:
         o = Ops(c)
         now = datetime.now(timezone.utc)
+
+        async def eta_schema_ready():   # the eta service creates its tables asynchronously at startup
+            return (await c.q("select to_regclass('eta.order_state') is not null"))[0][0]
+        await until(eta_schema_ready, timeout=30)
         async with c.engine.begin() as conn:
             for oid, status in (("d-active", "active"), ("d-done", "delivered"), ("d-cancelled", "cancelled")):
                 await conn.execute(text(

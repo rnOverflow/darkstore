@@ -30,6 +30,8 @@ class Settings(BaseSettings):
     # realtime gateway / tokens
     token_secret: str = ""                  # REQUIRED for tracking tokens (compose sets it from .env)
     tracking_token_ttl: int = 6 * 3600
+    guest_token_ttl: int = 6 * 3600
+    expose_docs: bool = False               # /docs and /openapi.json (off by default; `make fuzz` turns it on)
     ws_auth_timeout: float = 5.0
     ws_heartbeat: float = 15.0
     ws_idle_timeout: float = 45.0
@@ -44,6 +46,10 @@ class Settings(BaseSettings):
     eta_model_enabled: bool = True
     eta_model_dir: str = "models/eta/current"
     eta_reload_seconds: float = 10.0
+    # retention (see retention.py): unpublished outbox rows are never purged
+    outbox_retention_s: float = 3600.0
+    processed_retention_s: float = 86400.0
+    retention_interval_s: float = 60.0      # 0 disables the janitor
     # observability (empty endpoint = telemetry off; compose points it at the collector)
     otel_endpoint: str = ""
     otel_sample_ratio: float = 1.0

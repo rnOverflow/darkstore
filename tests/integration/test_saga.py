@@ -11,12 +11,13 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine
 
 from darkstore_common.events import make_event
+from darkstore_common.tokens import sign
 from darkstore_common.topics import Topic
 from darkstore_inventory.service import serve as serve_inventory
 from darkstore_order.service import serve as serve_order
 from darkstore_picking.service import serve as serve_picking
 
-from .helpers import publish, running, until
+from .helpers import AutoAuth, TEST_SECRET, publish, running, until
 
 pytestmark = pytest.mark.integration
 ITEMS = [{"sku": "milk", "qty": 2}, {"sku": "eggs", "qty": 1}]
@@ -32,7 +33,7 @@ class Ctx:
     def __init__(self, env, port):
         self.env, self.port = env, port
         self.engine = create_async_engine(env.database_url)
-        self.http = httpx.AsyncClient(base_url=f"http://localhost:{port}", timeout=10)
+        self.http = httpx.AsyncClient(base_url=f"http://localhost:{port}", timeout=10, auth=AutoAuth(env.token_secret))
 
     async def q(self, sql, **p):
         async with self.engine.connect() as c:
@@ -256,24 +257,31 @@ async def test_idempotency_key_is_scoped_to_the_customer(env):
     async with stack(env, inventory=False, picking=False) as c:
         body = lambda cust, qty=1: {"customer_id": cust, "store_id": "s1",  # noqa: E731
                                     "items": [{"sku": "milk", "qty": qty}]}
-        h = {"Idempotency-Key": "checkout-1"}
-        a = (await c.http.post("/orders", json=body("alice"), headers=h)).json()["order_id"]
-        b = await c.http.post("/orders", json=body("mallory"), headers=h)
+        def h(cust):
+            tok = sign(c.env.token_secret, role="guest", customer_id=cust, ttl_s=600)
+            return {"Idempotency-Key": "checkout-1", "Authorization": f"Bearer {tok}"}
+        first = await c.http.post("/orders", json=body("alice"), headers=h("alice"))
+        a = first.json()["order_id"]
+        b = await c.http.post("/orders", json=body("mallory"), headers=h("mallory"))
         assert b.status_code == 201 and b.json()["order_id"] != a  # another customer cannot collide
-        same = await c.http.post("/orders", json=body("alice"), headers=h)
-        assert same.status_code == 200 and same.json() == {"order_id": a, "status": "created"}
-        diff = await c.http.post("/orders", json=body("alice", qty=5), headers=h)
+        same = await c.http.post("/orders", json=body("alice"), headers=h("alice"))
+        assert same.status_code == 200 and same.json()["order_id"] == a and same.json()["status"] == "created"
+        diff = await c.http.post("/orders", json=body("alice", qty=5), headers=h("alice"))
         assert diff.status_code == 409
 
 
-async def test_a_tracking_token_is_issued_only_when_the_order_is_created_not_on_replay(env):
+async def test_a_replay_by_the_same_session_gets_a_working_tracking_token_again(env):
     async with stack(env, inventory=False, picking=False, token_secret="s" * 32) as c:
         body = {"customer_id": "c1", "store_id": "s1", "items": [{"sku": "milk", "qty": 1}]}
         h = {"Idempotency-Key": "k-token"}
         first = await c.http.post("/orders", json=body, headers=h)
         assert first.status_code == 201 and first.json()["tracking_token"]
         replay = await c.http.post("/orders", json=body, headers=h)
-        assert replay.status_code == 200 and "tracking_token" not in replay.json()   # replay proves no ownership
+        # idempotency is per customer, so a replay is by the owning session: a lost 201 must not strand the order
+        assert replay.status_code == 200 and replay.json()["tracking_token"]
+        got = await c.http.get(f"/orders/{first.json()['order_id']}",
+                               headers={"Authorization": "Bearer " + replay.json()["tracking_token"]})
+        assert got.status_code == 200
 
 
 async def test_late_rider_event_for_a_cancelled_order_is_a_noop_not_a_dead_letter(env):
@@ -293,3 +301,60 @@ async def test_late_rider_event_for_a_cancelled_order_is_a_noop_not_a_dead_lette
             return bool(rows)
         await until(applied, timeout=20)
         assert await c.status(oid) == "cancelled"
+
+
+# ---------------------------------------------------------------------------------------------- order API authn/z
+
+async def _tok(c, **kw):
+    return {"Authorization": "Bearer " + sign(c.env.token_secret, ttl_s=600, **kw)}
+
+
+async def test_order_api_requires_the_right_token_for_every_route(env):
+    async with stack(env, inventory=False, picking=False) as c:
+        body = {"store_id": "s1", "items": [{"sku": "milk", "qty": 1}]}
+        anon = httpx.AsyncClient(base_url=str(c.http.base_url), timeout=10)   # no auth flow at all
+        guest = await _tok(c, role="guest", customer_id="g-1")
+        ops = await _tok(c, role="ops")
+        # anonymous: 401 everywhere
+        assert (await anon.post("/orders", json=body)).status_code == 401
+        assert (await anon.get("/orders/x")).status_code == 401
+        assert (await anon.post("/orders/x/cancel")).status_code == 401
+        assert (await anon.post("/orders", json=body, headers={"Authorization": "Bearer junk"})).status_code == 401
+        # only a guest session creates orders; ops and per-order tokens cannot
+        assert (await anon.post("/orders", json=body, headers=ops)).status_code == 403
+        assert (await anon.post("/orders", json=body, headers=await _tok(c, role="customer", order_id="o"))).status_code == 403
+        r = await anon.post("/orders", json=body, headers=guest)
+        assert r.status_code == 201
+        oid, mine = r.json()["order_id"], {"Authorization": "Bearer " + r.json()["tracking_token"]}
+        # a guest session is not a key to existing orders
+        assert (await anon.get(f"/orders/{oid}", headers=guest)).status_code == 403
+        assert (await anon.post(f"/orders/{oid}/cancel", headers=guest)).status_code == 403
+        # the order's own token works, another order's token does not, and cannot probe for existence
+        assert (await anon.get(f"/orders/{oid}", headers=mine)).status_code == 200
+        other = await _tok(c, role="customer", order_id="someone-else")
+        assert (await anon.get(f"/orders/{oid}", headers=other)).status_code == 403
+        assert (await anon.get("/orders/does-not-exist", headers=other)).status_code == 403
+        assert (await anon.get("/orders/does-not-exist", headers=ops)).status_code == 404
+        await anon.aclose()
+
+
+async def test_customer_identity_comes_from_the_session_never_from_the_body(env):
+    async with stack(env, inventory=False, picking=False) as c:
+        guest = await _tok(c, role="guest", customer_id="g-real")
+        r = await c.http.post("/orders", headers=guest, json={
+            "customer_id": "victim", "store_id": "s1", "items": [{"sku": "milk", "qty": 1}]})
+        assert r.status_code == 201
+        rows = await c.q("select customer_id from orders.orders where order_id=:o", o=r.json()["order_id"])
+        assert rows[0][0] == "g-real"
+        ev = await c.q("select body::json->'payload'->>'customer_id' from orders.outbox")
+        assert ev[0][0] == "g-real"
+
+
+async def test_sessions_are_distinct_and_docs_are_hidden(env):
+    async with stack(env, inventory=False, picking=False) as c:
+        anon = httpx.AsyncClient(base_url=str(c.http.base_url), timeout=10)
+        a, b = (await anon.post("/sessions")).json(), (await anon.post("/sessions")).json()
+        assert a["customer_id"] != b["customer_id"] and a["customer_id"].startswith("g-")
+        for path in ("/docs", "/redoc", "/openapi.json"):
+            assert (await anon.get(path)).status_code == 404
+        await anon.aclose()

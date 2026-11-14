@@ -192,3 +192,63 @@ async def test_shutdown_is_prompt_while_a_retry_is_pending(env):
         await asyncio.sleep(3)  # message now sits on the 60s retry topic
         t0 = time.time()
     assert time.time() - t0 < 10  # used to block for the whole backoff
+
+
+async def test_failed_commit_never_skips_the_rest_of_the_fetched_batch(env, monkeypatch):
+    """Found by the P6 chaos run: when an offset commit fails (rebalance) the runner stopped working
+    through the batch it had already fetched, but the consumer's fetch position was past that batch, so
+    the unprocessed messages were skipped for good (10 consecutive order.created events never reached
+    the ETA service). The runner must rewind to the first uncommitted message."""
+    from aiokafka import AIOKafkaConsumer
+    from aiokafka.errors import CommitFailedError
+
+    real_commit, calls = AIOKafkaConsumer.commit, []
+
+    async def flaky_commit(self, *a, **kw):
+        calls.append(1)
+        if len(calls) == 1:
+            raise CommitFailedError("simulated rebalance")
+        return await real_commit(self, *a, **kw)
+
+    monkeypatch.setattr(AIOKafkaConsumer, "commit", flaky_commit)
+    seen = []
+
+    async def handler(session, e):
+        seen.append(e.event_id)
+
+    topic = env.topic(Topic.ORDER_EVENTS)
+    events = [_ev("same-partition") for _ in range(30)]
+    for e in events:                       # all published BEFORE the consumer starts: one fetched batch
+        await publish(env.kafka_bootstrap, topic, e)
+    async with running(lambda stop: run_service(env, meta=service_meta("ctest"), group=GROUP,
+                                                consumes=[Topic.ORDER_EVENTS], handler=handler,
+                                                stop=stop)):
+        await until(lambda: _async(set(seen) == {e.event_id for e in events}), timeout=30)
+    assert len(calls) > 1
+
+
+async def test_retention_purges_old_rows_but_never_unpublished_outbox_rows(env):
+    from sqlalchemy import text
+    from sqlalchemy.ext.asyncio import create_async_engine
+
+    from darkstore_common.db import init_schema, make_sessionmaker
+    from darkstore_common.retention import purge
+
+    meta = service_meta("ctest")
+    engine = create_async_engine(env.database_url)
+    await init_schema(engine, meta)
+    async with engine.begin() as c:
+        ins = ("insert into ctest.outbox(topic,key,event_id,body,headers,created_at,published_at) "
+               "values ('t','k',:e,'{{}}','{{}}',now() - interval '3 hours', {pub})")
+        await c.execute(text(ins.format(pub="now() - interval '2 hours'")), {"e": "old-published"})
+        await c.execute(text(ins.format(pub="now()")), {"e": "fresh-published"})
+        await c.execute(text(ins.format(pub="NULL")), {"e": "old-UNPUBLISHED"})
+        await c.execute(text("insert into ctest.processed_events(consumer,event_id,processed_at) values "
+                             "('g','old', now() - interval '2 days'), ('g','fresh', now())"))
+    o, p = await purge(make_sessionmaker(engine), meta, outbox_s=3600, processed_s=86400)
+    async with engine.connect() as c:
+        left = {r[0] for r in await c.execute(text("select event_id from ctest.outbox"))}
+        proc = {r[0] for r in await c.execute(text("select event_id from ctest.processed_events"))}
+    await engine.dispose()
+    assert (o, p) == (1, 1)
+    assert left == {"fresh-published", "old-UNPUBLISHED"} and proc == {"fresh"}

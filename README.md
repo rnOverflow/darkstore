@@ -17,9 +17,34 @@ make test    # unit tests          make test-int   # integration tests (testcont
 make e2e     # Playwright          make chaos SCENARIO=kill-picking   make load
 ```
 
-The demo simulator is sized to stay under the rider fleet's capacity: 1 order per simulated minute at base demand (`SIM_ORDERS_PER_MINUTE`, 30x clock, so 0.5/s before the rush multipliers), starting at 16:00 (`SIM_START_HOUR`) so the evening rush arrives a few minutes in. Measured on this machine through the lunch peak (sim hour ~13, about 1.1 orders/s target): 551 orders delivered in 15 minutes, order-to-delivered p50 103 s and p95 200 s, assignment backlog 0-1. City-wide destinations make trips longer than in the load test, which is why these are slower than the load-ramp table. The earlier defaults (3 per simulated minute, starting at 18:00) asked for 1.5 orders/s at base and 4.5/s in the evening peak against a fleet that delivers about 1 order/s on those trips, so orders queued for many minutes (656 waiting after 33 minutes). That is a demo-sizing issue, not a platform fault; raise the rate to watch the backlog and the SLO alerts react.
+The demo simulator runs on a 30x clock with 1 order per simulated minute at base demand (`SIM_ORDERS_PER_MINUTE`, so 0.5/s before the rush multipliers), starting at 16:00 (`SIM_START_HOUR`). The simulated clock starts when the stack first boots (its epoch is kept in Redis), so run `make demo` right after `make up`; starting it much later begins later in the simulated day. Two runs measured on this machine:
+
+- **Lunch peak** (sim hour ~13, about 1.1 orders/s target): 551 orders delivered in 15 minutes, order-to-delivered p50 103 s and p95 200 s, rider backlog 0-1. City-wide destinations make trips longer than in the load test, which is why these are slower than the load-ramp table.
+- **Evening rush** (19:00-22:00 simulated, 3.0x, about 1.5 orders/s target; it starts 6 minutes after the simulator and lasts about 6): this is over what the 120-rider fleet can deliver. About 0.7 orders/s were delivered through the rush (262 in 6.1 minutes), so the orders waiting for a rider grew to about 250 and drained to 0 about 6 minutes after demand fell. The order pipeline itself stayed healthy: consumer lag was at most 4 in samples taken every 30 s, and the simulator logged 0 failed placements. That queue is what the `FleetStarved` alert and the ops late-orders table exist to show; lower `SIM_ORDERS_PER_MINUTE` to stay under capacity.
+
+The earlier defaults (3 per simulated minute, starting at 18:00) asked for 1.5 orders/s at base and 4.5/s in the evening peak, so orders queued for many minutes (656 waiting after 33 minutes).
 
 Everything below that is a number was measured on one MacBook (Docker VM ~4 GB / 8 CPUs, 120 simulated riders, six dark stores). Nothing is extrapolated. Raw files are linked next to each table.
+
+## See it running
+
+Screenshots from the running demo on this laptop (`make up && make demo`). They are real captures, not mock-ups: `web/e2e/readme-shots.mjs` places an order in the customer UI and records it, and the same script grabs the ops dashboard.
+
+**One order, followed live in the customer UI.** The page opens a WebSocket to the gateway and the order moves through the saga in real time: the rider (R) appears once dispatch has claimed one, and the ETA card shows the model's estimate.
+
+| Picking | Out for delivery | Delivered |
+|---|---|---|
+| ![Order being picked at the dark store](docs/screenshots/customer-1-picking.jpg) | ![Rider on the way, ETA shown](docs/screenshots/customer-2-out-for-delivery.jpg) | ![Order delivered, all steps done](docs/screenshots/customer-3-delivered.jpg) |
+
+**Ops dashboard** (token URL from `make urls`): every rider on the map (green idle, blue assigned, orange cooldown) over the supply-vs-demand H3 cells, the dark stores (S), the order funnel, P95 pick time and the late-orders table. This capture was taken after the evening rush had drained, so most of the fleet is idle.
+
+![Ops dashboard with the demo running](docs/screenshots/ops-live.jpg)
+
+**One order is one trace**: the trace id is derived from the order id, so every service's spans for an order land in one Tempo trace (48 spans across 7 services in the capture below). Grafana ships five dashboards as code; the order funnel is shown here and the rest are in [docs/verification.md](docs/verification.md#screenshots-docsscreenshots-captured-from-the-running-stack).
+
+| Distributed trace of one order | Grafana: order funnel |
+|---|---|
+| ![One order as one trace in Tempo](docs/screenshots/trace-one-order.png) | ![Grafana order funnel dashboard](docs/screenshots/grafana-1-order-funnel.png) |
 
 ## Architecture
 

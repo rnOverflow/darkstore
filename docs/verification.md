@@ -38,6 +38,8 @@ Created/s at targets 0.5 / 1 / 1.5 / 2 / 3 / 4: 1.01 / 1.42 / 1.87 / 2.28 / 3.19
 
 | | |
 |---|---|
+| Customer, one order frame by frame: picking, out for delivery, delivered (`web/e2e/readme-shots.mjs`) | [1 picking](screenshots/customer-1-picking.jpg), [2 out for delivery](screenshots/customer-2-out-for-delivery.jpg), [3 delivered](screenshots/customer-3-delivered.jpg) |
+| Ops dashboard with the demo running (same script) | [ops-live.jpg](screenshots/ops-live.jpg) |
 | Customer: order delivered on the map | [customer-delivered.png](screenshots/customer-delivered.png) |
 | Customer: out for delivery with ETA | [customer-out-for-delivery.png](screenshots/customer-out-for-delivery.png) |
 | Ops dashboard | [ops-dashboard.png](screenshots/ops-dashboard.png) |

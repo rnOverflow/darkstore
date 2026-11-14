@@ -36,6 +36,8 @@ Every alert has a `runbook` annotation. First look: Grafana http://localhost:300
 | DLQ growing | a poison event or an out-of-order bug | Redpanda Console, topic `*.dlq`; fix the cause, then replay with `scripts/replay` |
 | ETA prediction error high | stale model | `make retrain` (promotes only if it beats the live model) |
 | WebSocket drops/overflow | slow clients or gateway CPU | WebSocket dashboard; the other replica keeps serving, clients reconnect and resume |
+| Orders pile up in `created`, order-consumer lag in the thousands, simulator `failed` count climbing, API calls time out | something is starving the 4 GB VM of CPU. Seen once with MLflow 3.17's background job workers, which sat at ~2 CPUs and the whole 1 GiB cap while idle; they are now disabled in compose (`MLFLOW_SERVER_ENABLE_JOB_EXECUTION=false`) | `docker stats --no-stream`; if `mlflow` is hot, `docker compose stop mlflow` (only training needs it). With the fix, MLflow idles at under 1% CPU |
+| Ops map shows stores but no riders or heat cells | MapLibre's worker is not being served as JavaScript (browser console: "Worker failed to load") | the worker is imported as an asset in `web/src/shared/mapStyle.ts` and nginx maps `.mjs` to JavaScript; rebuild `web` and hard-reload (browsers cache the old content type) |
 | One service unhealthy | crash loop | `docker compose logs <svc>`; services restart automatically and consumers resume from committed offsets |
 | Whole stack slow, containers OOM-killed | Docker VM has ~4 GB | `docker stats`; remove leftover testcontainers; stop `mlflow` if not training |
 

@@ -11,6 +11,21 @@ Everything runs from `docker compose` on one machine. Start with `make health`; 
 | Wipe all volumes (required after changing DB roles/schema) | `make clean` |
 | Remove testcontainers left by an interrupted `make test-int` | `make test-clean`, then `docker rm -f <names>` |
 
+### If Redpanda stays `unhealthy` after a restart
+
+Seen once on this laptop after hours of running the demo: Redpanda restarted, then sat `unhealthy` for 15+ minutes
+(`rpk cluster health` timed out, "reconciliation seems stuck" and reactor-stall lines in its log, `docker compose restart redpanda`
+did not help), and every service behind it stopped. I did not find the root cause. The Docker VM is small (4 GB) and
+the broker's data directory is already about 7.6 GB right after a fresh start. What worked: stop the simulator
+(`docker compose stop simulator`), then reset and start clean:
+
+```bash
+make clean && make up
+```
+
+If `make clean` fails with "container ... is zombie and can not be killed", run `docker compose down -v` again.
+Resetting loses all local demo data (orders, broker topics); nothing in `docs/` depends on it.
+
 ## Alerts (infra/prometheus/rules/slo.yml, tested by `make test-alerts`)
 Every alert has a `runbook` annotation. First look: Grafana http://localhost:3000, then `docs/observability.md`.
 

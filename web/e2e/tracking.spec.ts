@@ -66,6 +66,12 @@ test('a bad tracking token shows an expired session and does not retry forever',
 test('ops dashboard shows the live city', async ({ page }) => {
   const token = process.env.OPS_TOKEN;
   test.skip(!token, 'set OPS_TOKEN (make e2e does this)');
+  // MapLibre parses GeoJSON (riders, heat cells) in a web worker; if the worker file is not served as JavaScript the
+  // layers silently stay empty and only this console error shows it.
+  const workerErrors: string[] = [];
+  page.on('console', (m) => {
+    if (m.type() === 'error' && /worker/i.test(m.text())) workerErrors.push(m.text());
+  });
   await page.goto(`/ops/#token=${token}`);
   await expect(page.getByTestId('ops-map')).toBeVisible();
   await expect(page.getByTestId('ops-funnel')).toBeVisible();
@@ -76,6 +82,7 @@ test('ops dashboard shows the live city', async ({ page }) => {
     timeout: 30_000,
   });
   await page.waitForTimeout(3_000); // let a couple of polls and the map settle
+  expect(workerErrors).toEqual([]);
   await page.screenshot({ path: `${SHOTS}/ops-dashboard.png`, fullPage: true });
 });
 

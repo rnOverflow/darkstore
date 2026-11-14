@@ -1,5 +1,11 @@
-import type { StyleSpecification } from 'maplibre-gl';
+import { setWorkerUrl, type StyleSpecification } from 'maplibre-gl';
+import workerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?url';
 import { MAP_BG, OSM_ATTRIBUTION, OSM_TILES } from './tokens';
+
+// maplibre-gl 6 finds its worker with `new URL('./maplibre-gl-worker.mjs', import.meta.url)`, which Vite cannot see, so
+// the worker was never emitted. nginx answered the missing file with index.html and the worker failed to start, which
+// left every GeoJSON layer empty (ops map riders and heat cells, customer map trail). Importing it as an asset fixes that.
+setWorkerUrl(workerUrl);
 
 /** Grey background + OSM raster tiles. If tiles fail, overlays still render on the grey. */
 export const baseMapStyle: StyleSpecification = {

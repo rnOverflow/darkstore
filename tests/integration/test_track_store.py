@@ -112,3 +112,52 @@ async def test_a_late_or_redelivered_position_or_eta_cannot_move_state_backwards
     assert await store.ingest("o", eid(), "eta", eta(99.0), ts=299.0) is None
     assert (await store.snapshot("o"))["eta"]["p50_real_s"] == 30.0
     assert await store.ingest("o", eid(), "position", pos(3.0), ts=200.0)           # equal time is fine
+
+
+META = {"store": {"id": "store-0", "lat": 12.9, "lng": 77.6}, "dest": {"lat": 12.95, "lng": 77.62}}
+META_EVENT = {"store": META["store"], "dest": META["dest"]}
+
+
+async def test_store_and_destination_survive_an_order_created_that_arrives_after_a_later_status(store):
+    # the gateway consumes the order, inventory and picking topics independently, so order.created can lose the race
+    assert await status(store, "o-late", "picking")
+    assert await status(store, "o-late", "created", meta=META) is None      # stale as a status: not appended
+    snap = await store.snapshot("o-late")
+    assert snap["status"] == "picking"
+    assert snap["store"] == META["store"] and snap["dest"] == META["dest"]
+
+
+async def test_a_client_that_is_already_subscribed_is_sent_the_store_and_destination(store):
+    # its snapshot was taken before order.created was ingested, so the facts have to arrive as an event
+    pub = store.r.pubsub()
+    await pub.psubscribe(store.pattern)
+    await pub.get_message(timeout=2)                              # subscribe confirmation
+    await status(store, "o-meta", "created", meta=META)
+    seen: dict[str, dict] = {}
+    for _ in range(20):
+        m = await pub.get_message(ignore_subscribe_messages=True, timeout=0.5)
+        if m:
+            body = json.loads(m["data"])
+            seen[body["kind"]] = body
+        if {"meta", "status"} <= seen.keys():
+            break
+    await pub.aclose()
+    assert seen["meta"]["data"] == META_EVENT
+    assert stream_id_key(seen["meta"]["id"]) < stream_id_key(seen["status"]["id"])
+
+
+async def test_the_store_and_destination_of_a_late_order_created_are_replayed_to_a_reconnecting_client(store):
+    after = await status(store, "o-replay", "picking")
+    await status(store, "o-replay", "created", meta=META)
+    rows = await store.replay("o-replay", after)
+    assert [r["kind"] for r in rows] == ["meta"] and rows[0]["data"] == META_EVENT
+
+
+async def test_the_store_and_destination_are_recorded_once_per_order(store):
+    await status(store, "o-once", "created", meta=META)
+    other = {"store": {"id": "store-9", "lat": 1.0, "lng": 2.0}, "dest": {"lat": 3.0, "lng": 4.0}}
+    await status(store, "o-once", "reserved", meta=other)          # a second carrier must not overwrite or re-announce
+    snap = await store.snapshot("o-once")
+    assert snap["store"] == META["store"] and snap["dest"] == META["dest"]
+    rows = await store.replay("o-once", "0-1")
+    assert [r["kind"] for r in rows].count("meta") == 1

@@ -39,7 +39,7 @@ class Conn:
     def push(self, msg: dict) -> None:
         out = {"type": "event", "id": msg["id"], "kind": msg["kind"], "data": msg["data"],
                "_q": time.monotonic()}   # stripped by the sender: measures time spent in the queue
-        self.queue.put(out, droppable=msg["kind"] != "status")
+        self.queue.put(out, droppable=msg["kind"] not in ("status", "meta"))
 
 
 class Hub:

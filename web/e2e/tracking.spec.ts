@@ -20,6 +20,10 @@ test('customer places an order and watches it get delivered', async ({ page }) =
     timeout: 240_000,
   });
   await expect(page.getByTestId('marker-rider')).toBeVisible();
+  // store and customer markers: from the first snapshot, or from the meta event when the page connected before the
+  // gateway had consumed order.created (this used to leave the map zoomed out on the whole city, with neither marker)
+  await expect(page.getByTestId('marker-store')).toBeVisible();
+  await expect(page.getByTestId('marker-customer')).toBeVisible();
   await expect(page.getByTestId('eta-range')).toContainText(/\d|<1/);
   await page.screenshot({ path: `${SHOTS}/customer-out-for-delivery.png` });
 

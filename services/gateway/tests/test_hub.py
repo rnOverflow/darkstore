@@ -47,3 +47,18 @@ def test_per_subject_connection_count():
     assert hub.subject_count("o1") == 2 and hub.subject_count("ops") == 0
     hub.release(a)
     assert hub.subject_count("o1") == 1
+
+
+def test_the_store_and_destination_event_is_never_dropped_under_backpressure():
+    # positions are superseded by the next one and may be dropped; the order's store/destination are sent once
+    hub, c = Hub(), conn()
+    hub.add(c, "o1")
+    hub.route({"order_id": "o1", "id": "1-0", "kind": "meta",
+               "data": {"store": {"id": "s", "lat": 1, "lng": 2}, "dest": {"lat": 3, "lng": 4}}})
+    for i in range(2, 80):                         # far more positions than max_droppable (50)
+        hub.route({"order_id": "o1", "id": f"{i}-0", "kind": "position",
+                   "data": {"rider_id": "r", "lat": 1, "lng": 2, "at": "t"}})
+    kinds = []
+    while (m := c.queue.pop()):
+        kinds.append(m["kind"])
+    assert c.queue.dropped > 0 and "meta" in kinds

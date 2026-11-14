@@ -16,6 +16,25 @@ INGEST = """
 -- KEYS: stream, state, seen          ARGV: channel, order_id, kind, data_json, rank, status,
 --                                          maxlen, ttl, meta_json, seen_ttl, terminal_rank, ts
 if redis.call('SET', KEYS[3], '1', 'NX', 'EX', ARGV[10]) == false then return false end
+-- The order's store and destination are static facts carried by order.created. Record them BEFORE any staleness check:
+-- the topics are consumed independently, so order.created can arrive after a later status and would otherwise be
+-- dropped with its facts. They are announced as their own 'meta' event (once per order) so a client that subscribed
+-- before they were known still receives them; the status event itself stays subject to the forward-only rule.
+if ARGV[9] ~= '' then
+  local m = cjson.decode(ARGV[9])
+  local fresh = false
+  if m.store and redis.call('HSETNX', KEYS[2], 'store', cjson.encode(m.store)) == 1 then fresh = true end
+  if m.dest and redis.call('HSETNX', KEYS[2], 'dest', cjson.encode(m.dest)) == 1 then fresh = true end
+  if fresh then
+    local body = cjson.encode({store = m.store, dest = m.dest})
+    local mid = redis.call('XADD', KEYS[1], 'MAXLEN', '~', ARGV[7], '*', 'kind', 'meta', 'data', body)
+    redis.call('HSET', KEYS[2], 'last_id', mid)
+    redis.call('EXPIRE', KEYS[2], ARGV[8])
+    redis.call('EXPIRE', KEYS[1], ARGV[8])
+    redis.call('PUBLISH', ARGV[1], '{"order_id":' .. cjson.encode(ARGV[2]) .. ',"id":"' .. mid ..
+      '","kind":"meta","data":' .. body .. '}')
+  end
+end
 local cur = redis.call('HGET', KEYS[2], 'rank')
 local kind = ARGV[3]
 if kind == 'status' then
@@ -35,11 +54,6 @@ elseif kind == 'eta' then
   redis.call('HSET', KEYS[2], 'eta', ARGV[4])
 else
   redis.call('HSET', KEYS[2], 'rider', ARGV[4])
-end
-if ARGV[9] ~= '' then
-  local m = cjson.decode(ARGV[9])
-  if m.store then redis.call('HSET', KEYS[2], 'store', cjson.encode(m.store)) end
-  if m.dest then redis.call('HSET', KEYS[2], 'dest', cjson.encode(m.dest)) end
 end
 redis.call('HSET', KEYS[2], 'last_id', id)
 redis.call('EXPIRE', KEYS[2], ARGV[8])

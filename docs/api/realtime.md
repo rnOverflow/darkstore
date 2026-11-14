@@ -42,7 +42,8 @@ Server -> client:
 - `{"type":"snapshot", "order_id", "last_event_id", "status", "store":{"id","lat","lng"} | null,
    "dest":{"lat","lng"} | null, "eta": EtaData | null, "rider": {"rider_id","lat","lng"} | null,
    "history":[{"status","at"}]}` sent immediately after subscribe.
-- `{"type":"event","id":"<stream id>","kind":"status"|"eta"|"position","data":{...}}`
+- `{"type":"event","id":"<stream id>","kind":"status"|"eta"|"position"|"meta","data":{...}}`
+  (`meta` is additive; a client that does not know a kind ignores the frame)
 - `{"type":"heartbeat","ts":<unix seconds>}` every 15 s
 - `{"type":"error","code":"unauthorized"|"forbidden"|"bad_request"|"timeout","message":"..."}` then
   the socket closes with code 4401 (unauthorized) / 4403 (forbidden) / 4400 / 4408.
@@ -56,6 +57,11 @@ Event data:
   seconds REMAINING at time `at`; the UI counts down from there.
 - position: `{"rider_id": str, "lat": number, "lng": number, "at": "<iso>"}`, about 1/s while the
   rider is busy.
+- meta: `{"store": {"id","lat","lng"}, "dest": {"lat","lng"}}`, sent once per order, as soon as the
+  gateway has seen `order.created`. The same facts are in every later snapshot. It exists because a
+  client can subscribe (and receive a snapshot with `store`/`dest` null) before the gateway has
+  consumed `order.created`, and because that event can arrive after a later status. It is never
+  dropped under backpressure (unlike `eta` and `position`).
 
 ### Resume / ordering rules (client MUST follow)
 - Event ids are Redis stream ids (`"1731000000000-0"`): compare as (ms, seq) integer pairs.

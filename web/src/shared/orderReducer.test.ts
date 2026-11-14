@@ -163,3 +163,29 @@ describe('applySnapshot', () => {
     expect(s.rider).not.toBeNull();
   });
 });
+
+const meta = (id: string): OrderEvent => ({
+  type: 'event',
+  id,
+  kind: 'meta',
+  data: { store: { id: 's0', lat: 1, lng: 2 }, dest: { lat: 3, lng: 4 } },
+});
+
+describe('applyEvent: meta', () => {
+  it('sets the store and destination for a client whose snapshot was taken before order.created was ingested', () => {
+    let s = applySnapshot(fresh(), snap({ store: null, dest: null, status: 'created', history: [], last_event_id: null }));
+    expect(s.store).toBeNull();
+    expect(s.dest).toBeNull();
+    s = applyEvent(s, meta('7-0'));
+    expect(s.store).toEqual({ id: 's0', lat: 1, lng: 2 });
+    expect(s.dest).toEqual({ lat: 3, lng: 4 });
+    expect(s.lastEventId).toBe('7-0');
+  });
+
+  it('does not change the status and ignores a duplicate', () => {
+    let s = applyEvent(fresh(), status('1-0', 'reserved'));
+    s = applyEvent(s, meta('2-0'));
+    expect(s.status).toBe('reserved');
+    expect(applyEvent(s, meta('2-0'))).toBe(s);
+  });
+});

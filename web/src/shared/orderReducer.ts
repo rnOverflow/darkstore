@@ -131,5 +131,7 @@ export function applyEvent(state: OrderState, ev: OrderEvent): OrderState {
       return isTerminal(next.status)
         ? next
         : withRider(next, { rider_id: ev.data.rider_id, lat: ev.data.lat, lng: ev.data.lng });
+    case 'meta':
+      return { ...next, store: ev.data.store, dest: ev.data.dest };
   }
 }

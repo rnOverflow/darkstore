@@ -50,6 +50,12 @@ export function parseServerMessage(raw: unknown): ServerMessage | null {
       if (v.kind === 'position' && isNum(d.lat) && isNum(d.lng)) {
         return v as unknown as ServerMessage;
       }
+      if (v.kind === 'meta' && isObj(d.store) && isObj(d.dest)) {
+        const { store, dest } = d;
+        if (typeof store.id === 'string' && isNum(store.lat) && isNum(store.lng) && isNum(dest.lat) && isNum(dest.lng)) {
+          return v as unknown as ServerMessage;
+        }
+      }
       return null;
     }
     default:

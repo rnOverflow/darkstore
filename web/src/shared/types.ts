@@ -54,6 +54,11 @@ export interface StatusData {
 export interface PositionData extends RiderPos {
   at: string;
 }
+/** The order's static facts, sent once as their own event (a client that subscribed before order.created was ingested). */
+export interface MetaData {
+  store: StoreRef;
+  dest: LatLng;
+}
 
 export interface Snapshot {
   type: 'snapshot';
@@ -70,7 +75,8 @@ export interface Snapshot {
 export type OrderEvent =
   | { type: 'event'; id: string; kind: 'status'; data: StatusData }
   | { type: 'event'; id: string; kind: 'eta'; data: EtaData }
-  | { type: 'event'; id: string; kind: 'position'; data: PositionData };
+  | { type: 'event'; id: string; kind: 'position'; data: PositionData }
+  | { type: 'event'; id: string; kind: 'meta'; data: MetaData };
 
 export type ErrorCode = 'unauthorized' | 'forbidden' | 'bad_request' | 'timeout';
 
